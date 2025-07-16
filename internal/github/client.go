@@ -278,7 +278,7 @@ func (c *Client) doGitHubRequest(url string, useAuth bool, target interface{}) (
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
@@ -556,7 +556,7 @@ func (c *Client) fetchPRDiff(owner, repo, number string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)

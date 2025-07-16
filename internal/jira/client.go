@@ -239,10 +239,10 @@ func (c *Client) fetchIssueComments(jiraClient *JiraAPIClient, issueKey string) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch comments: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Jira API returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("jira API returned status %d", resp.StatusCode)
 	}
 
 	var response struct {
@@ -294,10 +294,10 @@ func (c *Client) fetchIssueHistory(jiraClient *JiraAPIClient, issueKey string) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch history: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Jira API returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("jira API returned status %d", resp.StatusCode)
 	}
 
 	var response struct {
@@ -372,10 +372,10 @@ func (c *Client) fetchEnhancedFields(jiraClient *JiraAPIClient, issueKey string)
 	if err != nil {
 		return EnhancedFields{}, fmt.Errorf("failed to fetch enhanced fields: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return EnhancedFields{}, fmt.Errorf("Jira API returned status %d", resp.StatusCode)
+		return EnhancedFields{}, fmt.Errorf("jira API returned status %d", resp.StatusCode)
 	}
 
 	var response struct {

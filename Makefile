@@ -25,6 +25,13 @@ clean:
 test:
 	go test -v ./...
 
+# Run integration tests
+.PHONY: integration-test
+integration-test: build
+	@echo "Running integration tests..."
+	./${BINARY_NAME} --help
+	@echo "Integration tests completed successfully"
+
 # Run go mod tidy
 .PHONY: tidy
 tidy:
@@ -40,9 +47,14 @@ fmt:
 vet:
 	go vet ./...
 
-# Run all checks (fmt, vet, test)
+# Run golangci-lint
+.PHONY: lint
+lint:
+	golangci-lint run
+
+# Run all checks (fmt, vet, lint, test)
 .PHONY: check
-check: fmt vet test
+check: fmt vet lint test
 
 # Install dependencies
 .PHONY: deps
@@ -69,10 +81,12 @@ help:
 	@echo "  build      - Build the perfdive binary"
 	@echo "  clean      - Remove build artifacts"
 	@echo "  test       - Run tests"
+	@echo "  integration-test - Run integration tests"
 	@echo "  tidy       - Run go mod tidy"
 	@echo "  fmt        - Format Go code"
 	@echo "  vet        - Run go vet"
-	@echo "  check      - Run fmt, vet, and test"
+	@echo "  lint       - Run golangci-lint"
+	@echo "  check      - Run fmt, vet, lint, and test"
 	@echo "  deps       - Download dependencies"
 	@echo "  build-all  - Build for multiple platforms"
 	@echo "  run        - Build and show help"
