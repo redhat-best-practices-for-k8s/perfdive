@@ -64,15 +64,15 @@ func init() {
 	rootCmd.Flags().BoolP("verbose", "v", false, "Enable verbose output including warnings and debug information")
 
 	// Bind flags to viper
-	viper.BindPFlag("jira.url", rootCmd.Flags().Lookup("jira-url"))
-	viper.BindPFlag("jira.username", rootCmd.Flags().Lookup("jira-username"))
-	viper.BindPFlag("jira.token", rootCmd.Flags().Lookup("jira-token"))
-	viper.BindPFlag("ollama.url", rootCmd.Flags().Lookup("ollama-url"))
-	viper.BindPFlag("output.format", rootCmd.Flags().Lookup("output"))
-	viper.BindPFlag("github.token", rootCmd.Flags().Lookup("github-token"))
-	viper.BindPFlag("github.username", rootCmd.Flags().Lookup("github-username"))
-	viper.BindPFlag("github.activity", rootCmd.Flags().Lookup("github-activity"))
-	viper.BindPFlag("verbose", rootCmd.Flags().Lookup("verbose"))
+	_ = viper.BindPFlag("jira.url", rootCmd.Flags().Lookup("jira-url"))
+	_ = viper.BindPFlag("jira.username", rootCmd.Flags().Lookup("jira-username"))
+	_ = viper.BindPFlag("jira.token", rootCmd.Flags().Lookup("jira-token"))
+	_ = viper.BindPFlag("ollama.url", rootCmd.Flags().Lookup("ollama-url"))
+	_ = viper.BindPFlag("output.format", rootCmd.Flags().Lookup("output"))
+	_ = viper.BindPFlag("github.token", rootCmd.Flags().Lookup("github-token"))
+	_ = viper.BindPFlag("github.username", rootCmd.Flags().Lookup("github-username"))
+	_ = viper.BindPFlag("github.activity", rootCmd.Flags().Lookup("github-activity"))
+	_ = viper.BindPFlag("verbose", rootCmd.Flags().Lookup("verbose"))
 }
 
 // initConfig reads in config file and ENV variables if set.
