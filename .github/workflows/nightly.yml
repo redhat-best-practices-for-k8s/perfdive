@@ -4,7 +4,7 @@ on:
   schedule:
     # Run at 2 AM UTC every day
     - cron: '0 2 * * *'
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   nightly:
@@ -12,16 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'redhat-best-practices-for-k8s/perfdive'
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: go.mod
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
-    - name: Run make build
-      run: make build
+      - name: Run make build
+        run: make build
 
-    - name: Run make integration-test
-      run: make integration-test 
+      - name: Run make integration-test
+        run: make integration-test
