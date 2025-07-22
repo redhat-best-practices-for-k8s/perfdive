@@ -128,11 +128,12 @@ type GitHubUser struct {
 
 // GitHubContext holds all GitHub information related to a Jira issue
 type GitHubContext struct {
-	References     []GitHubReference `json:"references"`
-	PullRequests   []PullRequest     `json:"pullRequests"`
-	Issues         []Issue           `json:"issues"`
-	UserActivity   []UserActivity    `json:"userActivity"`
-	GitHubUsername string            `json:"githubUsername"`
+	References            []GitHubReference          `json:"references"`
+	PullRequests          []PullRequest              `json:"pullRequests"`
+	Issues                []Issue                    `json:"issues"`
+	UserActivity          []UserActivity             `json:"userActivity"` // Legacy events API activity
+	GitHubUsername        string                     `json:"githubUsername"`
+	ComprehensiveActivity *ComprehensiveUserActivity `json:"comprehensiveActivity,omitempty"` // Enhanced activity from multiple sources
 }
 
 // ReviewComment represents a GitHub PR review comment
@@ -357,18 +358,19 @@ func (c *Client) SearchUserByEmail(email string) (string, error) {
 	// GitHub search API endpoint for users
 	url := fmt.Sprintf("%s/search/users?q=%s+in:email", c.baseURL, email)
 
-	result, err := c.makeGitHubRequest(url, &UserSearchResult{})
+	var searchResult UserSearchResult
+	result, err := c.makeGitHubRequest(url, &searchResult)
 	if err != nil {
 		return "", err
 	}
 
-	searchResult := result.(*UserSearchResult)
-	if len(searchResult.Items) == 0 {
+	userSearchResult := result.(*UserSearchResult)
+	if len(userSearchResult.Items) == 0 {
 		return "", fmt.Errorf("no GitHub user found with email %s (email may be private or user may use different email for GitHub)", email)
 	}
 
 	// Return the first match (most relevant)
-	return searchResult.Items[0].Login, nil
+	return userSearchResult.Items[0].Login, nil
 }
 
 // FetchUserActivity retrieves a user's recent GitHub activity
@@ -382,6 +384,118 @@ func (c *Client) FetchUserActivity(username string) ([]UserActivity, error) {
 	}
 
 	return *result.(*[]UserActivity), nil
+}
+
+// PullRequestSearchResult represents the search result structure for PRs
+type PullRequestSearchResult struct {
+	Items []UserPullRequest `json:"items"`
+}
+
+// FetchUserPullRequests retrieves pull requests created by a user across all repos with pagination
+func (c *Client) FetchUserPullRequests(username string) ([]UserPullRequest, error) {
+	var allPRs []UserPullRequest
+	page := 1
+	perPage := 100
+
+	for {
+		// Search for PRs created by the user with pagination
+		url := fmt.Sprintf("%s/search/issues?q=type:pr+author:%s&sort=created&order=desc&per_page=%d&page=%d",
+			c.baseURL, username, perPage, page)
+
+		var searchResult PullRequestSearchResult
+
+		result, err := c.makeGitHubRequest(url, &searchResult)
+		if err != nil {
+			return allPRs, err // Return what we have so far
+		}
+
+		prs := result.(*PullRequestSearchResult).Items
+		if len(prs) == 0 {
+			break // No more results
+		}
+
+		allPRs = append(allPRs, prs...)
+
+		// GitHub Search API has a limit of 1000 results (10 pages of 100)
+		// Also break if we got less than perPage results (indicates last page)
+		if len(prs) < perPage || page >= 10 {
+			break
+		}
+
+		page++
+	}
+
+	return allPRs, nil
+}
+
+// IssueSearchResult represents the search result structure for issues
+type IssueSearchResult struct {
+	Items []UserIssue `json:"items"`
+}
+
+// FetchUserIssues retrieves issues created by a user across all repos with pagination
+func (c *Client) FetchUserIssues(username string) ([]UserIssue, error) {
+	var allIssues []UserIssue
+	page := 1
+	perPage := 100
+
+	for {
+		// Search for issues created by the user with pagination
+		url := fmt.Sprintf("%s/search/issues?q=type:issue+author:%s&sort=created&order=desc&per_page=%d&page=%d",
+			c.baseURL, username, perPage, page)
+
+		var searchResult IssueSearchResult
+
+		result, err := c.makeGitHubRequest(url, &searchResult)
+		if err != nil {
+			return allIssues, err // Return what we have so far
+		}
+
+		issues := result.(*IssueSearchResult).Items
+		if len(issues) == 0 {
+			break // No more results
+		}
+
+		allIssues = append(allIssues, issues...)
+
+		// GitHub Search API has a limit of 1000 results (10 pages of 100)
+		// Also break if we got less than perPage results (indicates last page)
+		if len(issues) < perPage || page >= 10 {
+			break
+		}
+
+		page++
+	}
+
+	return allIssues, nil
+}
+
+// UserPullRequest represents a PR from search results
+type UserPullRequest struct {
+	Number        int     `json:"number"`
+	Title         string  `json:"title"`
+	Body          string  `json:"body"`
+	State         string  `json:"state"`
+	CreatedAt     string  `json:"created_at"`
+	UpdatedAt     string  `json:"updated_at"`
+	HTMLURL       string  `json:"html_url"`
+	RepositoryURL string  `json:"repository_url"`
+	User          User    `json:"user"`
+	Labels        []Label `json:"labels"`
+}
+
+// UserIssue represents an issue from search results
+type UserIssue struct {
+	Number        int     `json:"number"`
+	Title         string  `json:"title"`
+	Body          string  `json:"body"`
+	State         string  `json:"state"`
+	CreatedAt     string  `json:"created_at"`
+	UpdatedAt     string  `json:"updated_at"`
+	HTMLURL       string  `json:"html_url"`
+	RepositoryURL string  `json:"repository_url"`
+	User          User    `json:"user"`
+	Labels        []Label `json:"labels"`
 }
 
 // FilterActivityByDateRange filters user activity to a specific date range
@@ -634,4 +748,99 @@ func (c *Client) isDocumentationFile(filename string) bool {
 		strings.Contains(lowerName, "readme") ||
 		strings.Contains(lowerName, "doc") ||
 		strings.Contains(lowerName, "changelog")
+}
+
+// FetchComprehensiveUserActivity fetches user activity from multiple sources
+func (c *Client) FetchComprehensiveUserActivity(username, startDate, endDate string) (*ComprehensiveUserActivity, error) {
+	activity := &ComprehensiveUserActivity{
+		Username: username,
+	}
+
+	// Fetch traditional events
+	events, err := c.FetchUserActivity(username)
+	if err != nil {
+		fmt.Printf("Warning: failed to fetch user events: %v\n", err)
+	} else {
+		activity.Events = c.FilterActivityByDateRange(events, startDate, endDate)
+	}
+
+	// Fetch PRs created by user
+	prs, err := c.FetchUserPullRequests(username)
+	if err != nil {
+		fmt.Printf("Warning: failed to fetch user pull requests: %v\n", err)
+	} else {
+		activity.PullRequests = c.FilterPullRequestsByDateRange(prs, startDate, endDate)
+	}
+
+	// Fetch issues created by user
+	issues, err := c.FetchUserIssues(username)
+	if err != nil {
+		fmt.Printf("Warning: failed to fetch user issues: %v\n", err)
+	} else {
+		activity.Issues = c.FilterIssuesByDateRange(issues, startDate, endDate)
+	}
+
+	return activity, nil
+}
+
+// ComprehensiveUserActivity holds all types of user activity
+type ComprehensiveUserActivity struct {
+	Username     string            `json:"username"`
+	Events       []UserActivity    `json:"events"`
+	PullRequests []UserPullRequest `json:"pull_requests"`
+	Issues       []UserIssue       `json:"issues"`
+}
+
+// FilterPullRequestsByDateRange filters PRs by date range
+func (c *Client) FilterPullRequestsByDateRange(prs []UserPullRequest, startDate, endDate string) []UserPullRequest {
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return prs
+	}
+
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return prs
+	}
+
+	var filtered []UserPullRequest
+	for _, pr := range prs {
+		createdTime, err := time.Parse(time.RFC3339, pr.CreatedAt)
+		if err != nil {
+			continue
+		}
+
+		if createdTime.After(start) && createdTime.Before(end.Add(24*time.Hour)) {
+			filtered = append(filtered, pr)
+		}
+	}
+
+	return filtered
+}
+
+// FilterIssuesByDateRange filters issues by date range
+func (c *Client) FilterIssuesByDateRange(issues []UserIssue, startDate, endDate string) []UserIssue {
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return issues
+	}
+
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return issues
+	}
+
+	var filtered []UserIssue
+	for _, issue := range issues {
+		createdTime, err := time.Parse(time.RFC3339, issue.CreatedAt)
+		if err != nil {
+			continue
+		}
+
+		if createdTime.After(start) && createdTime.Before(end.Add(24*time.Hour)) {
+			filtered = append(filtered, issue)
+		}
+	}
+
+	return filtered
 }
