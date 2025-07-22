@@ -71,12 +71,54 @@ func NewClient(config Config) *Client {
 	}
 }
 
-// GenerateSummary generates a summary of Jira issues using Ollama
+// GenerateSummary generates a combined summary with separate Jira and GitHub sections
 func (c *Client) GenerateSummary(req SummaryRequest) (string, error) {
-	prompt := c.buildPrompt(req)
+	var result strings.Builder
 
+	// Generate Jira summary
+	jiraSummary, err := c.generateJiraSummary(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate Jira summary: %w", err)
+	}
+
+	// Generate GitHub summary
+	githubSummary, err := c.generateGitHubSummary(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate GitHub summary: %w", err)
+	}
+
+	// Combine the results
+	result.WriteString("**JIRA PROJECT WORK SUMMARY**\n\n")
+	result.WriteString(jiraSummary)
+	result.WriteString("\n\n")
+
+	result.WriteString("**GITHUB DEVELOPMENT SUMMARY**\n\n")
+	result.WriteString(githubSummary)
+	result.WriteString("\n\n")
+
+	// Add quantitative summary
+	result.WriteString("**PERFORMANCE METRICS**\n\n")
+	result.WriteString(c.buildQuantitativeSummary(req))
+
+	return result.String(), nil
+}
+
+// generateJiraSummary creates a focused summary of Jira work
+func (c *Client) generateJiraSummary(req SummaryRequest) (string, error) {
+	prompt := c.buildJiraPrompt(req)
+	return c.callOllama(req.Model, prompt)
+}
+
+// generateGitHubSummary creates a focused summary of GitHub work
+func (c *Client) generateGitHubSummary(req SummaryRequest) (string, error) {
+	prompt := c.buildGitHubPrompt(req)
+	return c.callOllama(req.Model, prompt)
+}
+
+// callOllama makes the actual API call to Ollama
+func (c *Client) callOllama(model, prompt string) (string, error) {
 	ollamaReq := GenerateRequest{
-		Model:  req.Model,
+		Model:  model,
 		Prompt: prompt,
 		Stream: false,
 	}
@@ -112,424 +154,173 @@ func (c *Client) GenerateSummary(req SummaryRequest) (string, error) {
 	return ollamaResp.Response, nil
 }
 
-// buildPrompt constructs the prompt for the LLM based on the issues and request parameters
-func (c *Client) buildPrompt(req SummaryRequest) string {
+// buildJiraPrompt creates a focused prompt for analyzing Jira work
+func (c *Client) buildJiraPrompt(req SummaryRequest) string {
 	var builder strings.Builder
 
-	// Determine which name to use for the prompt
 	userName := req.Email
 	if req.DisplayName != "" {
 		userName = req.DisplayName
 	}
 
-	// Base instruction
 	builder.WriteString(fmt.Sprintf(
-		"Generate a summary in 2 to 4 paragraphs about what %s has done between %s and %s based on their assigned Jira issues.\n\n",
+		"Analyze %s's Jira project work from %s to %s. Write a professional summary of their project management and problem-solving contributions.\n\n",
 		userName, req.StartDate, req.EndDate,
 	))
 
-	builder.WriteString("Please organize the summary by Jira project (e.g., CNF, CNFCERT, OCPBUGS) to show the scope of work across different areas.\n\n")
+	builder.WriteString("Focus on:\n")
+	builder.WriteString("- Issues resolved and business impact\n")
+	builder.WriteString("- Project contributions across different areas\n")
+	builder.WriteString("- Technical problem-solving achievements\n")
+	builder.WriteString("- Collaboration and stakeholder engagement\n\n")
+	builder.WriteString("IMPORTANT: Do NOT include any numerical ratings, scores, or grades. Focus on qualitative analysis only.\n\n")
 
-	// Add format instruction
-	if req.Format == "json" {
-		builder.WriteString("Please format the response as JSON with the following structure:\n")
-		builder.WriteString(`{
-  "summary": "2-4 paragraph summary here",
-  "period": "date range",
-  "user": "user name or email",
-  "total_issues": number,
-  "projects": {
-    "PROJECT_NAME": {
-      "issue_count": number,
-      "key_activities": ["activity1", "activity2"]
-    }
-  },
-  "key_activities": ["overall activity1", "overall activity2", "overall activity3"]
+	// Add Jira issues data
+	c.addJiraData(&builder, req)
+
+	return builder.String()
 }
 
-`)
-	} else {
-		builder.WriteString("Please format the response as plain text.\n\n")
+// buildGitHubPrompt creates a focused prompt for analyzing GitHub work
+func (c *Client) buildGitHubPrompt(req SummaryRequest) string {
+	var builder strings.Builder
+
+	userName := req.Email
+	if req.DisplayName != "" {
+		userName = req.DisplayName
 	}
 
-	// Add issue data grouped by project
-	builder.WriteString("Here are the Jira issues assigned to this user in the specified period, organized by project:\n\n")
+	builder.WriteString(fmt.Sprintf(
+		"Analyze %s's GitHub development contributions from %s to %s. Write a professional summary of their technical contributions and development productivity.\n\n",
+		userName, req.StartDate, req.EndDate,
+	))
 
-	if len(req.Issues) == 0 {
-		builder.WriteString("No issues were found for this user in the specified date range.\n")
-	} else {
-		// Group issues by project
-		projectGroups := make(map[string][]jira.Issue)
+	builder.WriteString("Focus on:\n")
+	builder.WriteString("- Code contributions and technical improvements\n")
+	builder.WriteString("- Repository impact and collaboration\n")
+	builder.WriteString("- Development quality and productivity\n")
+	builder.WriteString("- Open source community engagement\n\n")
+	builder.WriteString("IMPORTANT: Do NOT include any numerical ratings, scores, or grades. Focus on qualitative analysis only.\n\n")
+
+	// Add GitHub data
+	c.addGitHubData(&builder, req)
+
+	return builder.String()
+}
+
+// buildQuantitativeSummary creates the metrics section
+func (c *Client) buildQuantitativeSummary(req SummaryRequest) string {
+	var builder strings.Builder
+
+	// Jira metrics
+	builder.WriteString(fmt.Sprintf("**Jira Issues:** %d total\n", len(req.Issues)))
+	if len(req.Issues) > 0 {
+		projectGroups := make(map[string]int)
 		for _, issue := range req.Issues {
 			project := extractProjectFromKey(issue.Key)
-			projectGroups[project] = append(projectGroups[project], issue)
+			projectGroups[project]++
 		}
-
-		// Output issues grouped by project
-		for project, issues := range projectGroups {
-			builder.WriteString(fmt.Sprintf("=== %s PROJECT ===\n", project))
-			for _, issue := range issues {
-				builder.WriteString(fmt.Sprintf("%s:\n", issue.Key))
-				builder.WriteString(fmt.Sprintf("- Summary: %s\n", issue.Summary))
-				builder.WriteString(fmt.Sprintf("- Status: %s\n", issue.Status))
-				builder.WriteString(fmt.Sprintf("- Created: %s\n", issue.Created.Format("2006-01-02")))
-				builder.WriteString(fmt.Sprintf("- Updated: %s\n", issue.Updated.Format("2006-01-02")))
-				if issue.Description != "" {
-					// Truncate description if too long
-					description := issue.Description
-					if len(description) > 200 {
-						description = description[:200] + "..."
-					}
-					builder.WriteString(fmt.Sprintf("- Description: %s\n", description))
-				}
-
-				// Add enhanced context
-				if issue.Priority != "" {
-					builder.WriteString(fmt.Sprintf("- Priority: %s\n", issue.Priority))
-				}
-
-				if len(issue.Labels) > 0 {
-					builder.WriteString(fmt.Sprintf("- Labels: %s\n", strings.Join(issue.Labels, ", ")))
-				}
-
-				if len(issue.Components) > 0 {
-					builder.WriteString(fmt.Sprintf("- Components: %s\n", strings.Join(issue.Components, ", ")))
-				}
-
-				if issue.TimeTracking != nil {
-					builder.WriteString("- Time Tracking:\n")
-					if issue.TimeTracking.OriginalEstimate != "" {
-						builder.WriteString(fmt.Sprintf("  * Original Estimate: %s\n", issue.TimeTracking.OriginalEstimate))
-					}
-					if issue.TimeTracking.TimeSpent != "" {
-						builder.WriteString(fmt.Sprintf("  * Time Spent: %s\n", issue.TimeTracking.TimeSpent))
-					}
-					if issue.TimeTracking.RemainingEstimate != "" {
-						builder.WriteString(fmt.Sprintf("  * Remaining: %s\n", issue.TimeTracking.RemainingEstimate))
-					}
-				}
-
-				// Add comments if available
-				if len(issue.Comments) > 0 {
-					builder.WriteString(fmt.Sprintf("- Comments (%d):\n", len(issue.Comments)))
-					commentCount := 0
-					for _, comment := range issue.Comments {
-						if commentCount >= 5 { // Limit to 5 most recent/relevant comments
-							break
-						}
-						commentBody := comment.Body
-						if len(commentBody) > 200 {
-							commentBody = commentBody[:200] + "..."
-						}
-						builder.WriteString(fmt.Sprintf("  * %s (%s): %s\n",
-							comment.Author, comment.Created.Format("2006-01-02"), commentBody))
-						commentCount++
-					}
-					if len(issue.Comments) > 5 {
-						builder.WriteString(fmt.Sprintf("  ... and %d more comments\n", len(issue.Comments)-5))
-					}
-				}
-
-				// Add history if available (show key transitions and changes)
-				if len(issue.History) > 0 {
-					builder.WriteString("- Key Changes:\n")
-					historyCount := 0
-					for _, historyItem := range issue.History {
-						if historyCount >= 3 { // Limit to 3 most important history items
-							break
-						}
-						for _, change := range historyItem.Items {
-							// Focus on important field changes
-							if change.Field == "status" || change.Field == "assignee" ||
-								change.Field == "priority" || change.Field == "resolution" {
-								builder.WriteString(fmt.Sprintf("  * %s (%s): %s changed from '%s' to '%s'\n",
-									historyItem.Author, historyItem.Created.Format("2006-01-02"),
-									change.Field, change.FromString, change.ToString))
-								historyCount++
-								break // Only show one change per history item to avoid clutter
-							}
-						}
-					}
-				}
-
-				// Add custom fields if they contain relevant information
-				if len(issue.CustomFields) > 0 {
-					builder.WriteString("- Additional Context:\n")
-					fieldCount := 0
-					for fieldName, fieldValue := range issue.CustomFields {
-						if fieldCount >= 3 { // Limit to 3 most relevant custom fields
-							break
-						}
-						if fieldValue != nil && fieldValue != "" {
-							builder.WriteString(fmt.Sprintf("  * %s: %v\n", fieldName, fieldValue))
-							fieldCount++
-						}
-					}
-				}
-
-				builder.WriteString("\n")
-			}
-			builder.WriteString("\n")
+		for project, count := range projectGroups {
+			builder.WriteString(fmt.Sprintf("- %s: %d issues\n", project, count))
 		}
 	}
 
-	// Add GitHub context if available
-	if req.GitHubContext != nil && (len(req.GitHubContext.PullRequests) > 0 || len(req.GitHubContext.Issues) > 0) {
-		builder.WriteString("\n" + strings.Repeat("=", 50) + "\n")
-		builder.WriteString("RELATED GITHUB ACTIVITY:\n")
-		builder.WriteString(strings.Repeat("=", 50) + "\n\n")
-
-		if len(req.GitHubContext.PullRequests) > 0 {
-			builder.WriteString("GitHub Pull Requests referenced in Jira issues:\n\n")
-			for _, pr := range req.GitHubContext.PullRequests {
-				// Find the repository info from the references
-				var repoName string
-				for _, ref := range req.GitHubContext.References {
-					if ref.Type == "pull" && ref.Number == fmt.Sprintf("%d", pr.Number) {
-						repoName = fmt.Sprintf("%s/%s", ref.Owner, ref.Repo)
-						break
-					}
-				}
-				if repoName == "" {
-					repoName = "unknown/repo"
-				}
-
-				builder.WriteString(fmt.Sprintf("%s #%d:\n", repoName, pr.Number))
-				builder.WriteString(fmt.Sprintf("- Title: %s\n", pr.Title))
-				builder.WriteString(fmt.Sprintf("- State: %s\n", pr.State))
-				builder.WriteString(fmt.Sprintf("- Author: %s\n", pr.User.Login))
-				builder.WriteString(fmt.Sprintf("- Created: %s\n", pr.CreatedAt))
-				if pr.MergedAt != "" {
-					builder.WriteString(fmt.Sprintf("- Merged: %s\n", pr.MergedAt))
-				}
-				if pr.Body != "" {
-					// Truncate PR body if too long
-					body := pr.Body
-					if len(body) > 300 {
-						body = body[:300] + "..."
-					}
-					builder.WriteString(fmt.Sprintf("- Description: %s\n", body))
-				}
-				builder.WriteString(fmt.Sprintf("- Changes: +%d/-%d lines across %d files\n", pr.Additions, pr.Deletions, pr.ChangedFiles))
-
-				// Add file analysis
-				if len(pr.FilesChanged) > 0 {
-					builder.WriteString("- Files changed:\n")
-					sourceFiles := 0
-					testFiles := 0
-					docFiles := 0
-					configFiles := 0
-
-					for _, file := range pr.FilesChanged {
-						switch file.FileType {
-						case "source_code":
-							sourceFiles++
-						case "test":
-							testFiles++
-						case "documentation":
-							docFiles++
-						case "configuration":
-							configFiles++
-						}
-
-						if file.IsTestFile {
-							testFiles++
-						}
-						if file.IsDocFile {
-							docFiles++
-						}
-					}
-
-					if sourceFiles > 0 {
-						builder.WriteString(fmt.Sprintf("  * %d source code files\n", sourceFiles))
-					}
-					if testFiles > 0 {
-						builder.WriteString(fmt.Sprintf("  * %d test files\n", testFiles))
-					}
-					if docFiles > 0 {
-						builder.WriteString(fmt.Sprintf("  * %d documentation files\n", docFiles))
-					}
-					if configFiles > 0 {
-						builder.WriteString(fmt.Sprintf("  * %d configuration files\n", configFiles))
-					}
-
-					// Include some key file details
-					builder.WriteString("  * Key files:\n")
-					fileCount := 0
-					for _, file := range pr.FilesChanged {
-						if fileCount >= 5 { // Limit to 5 key files
-							break
-						}
-						builder.WriteString(fmt.Sprintf("    - %s (%s, +%d/-%d)\n",
-							file.Filename, file.Status, file.Additions, file.Deletions))
-						fileCount++
-					}
-				}
-
-				// Add review comments if available
-				if len(pr.ReviewComments) > 0 {
-					builder.WriteString(fmt.Sprintf("- Review Comments (%d):\n", len(pr.ReviewComments)))
-					commentCount := 0
-					for _, comment := range pr.ReviewComments {
-						if commentCount >= 3 { // Limit to 3 most relevant comments
-							break
-						}
-						commentBody := comment.Body
-						if len(commentBody) > 150 {
-							commentBody = commentBody[:150] + "..."
-						}
-						builder.WriteString(fmt.Sprintf("  * %s: %s\n", comment.User.Login, commentBody))
-						commentCount++
-					}
-				}
-
-				// Add code diff summary if available
-				if pr.CodeDiff != "" {
-					builder.WriteString("- Code Changes Summary:\n")
-					// Just include first few lines of diff for context
-					diffLines := strings.Split(pr.CodeDiff, "\n")
-					lineCount := 0
-					for _, line := range diffLines {
-						if lineCount >= 10 { // Limit to 10 lines of diff
-							builder.WriteString("  ... (more changes)\n")
-							break
-						}
-						if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") || strings.HasPrefix(line, "@@") {
-							builder.WriteString(fmt.Sprintf("  %s\n", line))
-							lineCount++
-						}
-					}
-				}
-
-				builder.WriteString("\n")
-			}
-		}
-
-		if len(req.GitHubContext.Issues) > 0 {
-			builder.WriteString("GitHub Issues referenced in Jira issues:\n\n")
-			for _, issue := range req.GitHubContext.Issues {
-				// Find the repository info from the references
-				var repoName string
-				for _, ref := range req.GitHubContext.References {
-					if ref.Type == "issues" && ref.Number == fmt.Sprintf("%d", issue.Number) {
-						repoName = fmt.Sprintf("%s/%s", ref.Owner, ref.Repo)
-						break
-					}
-				}
-				if repoName == "" {
-					repoName = "unknown/repo"
-				}
-
-				builder.WriteString(fmt.Sprintf("%s #%d:\n", repoName, issue.Number))
-				builder.WriteString(fmt.Sprintf("- Title: %s\n", issue.Title))
-				builder.WriteString(fmt.Sprintf("- State: %s\n", issue.State))
-				builder.WriteString(fmt.Sprintf("- Author: %s\n", issue.User.Login))
-				builder.WriteString(fmt.Sprintf("- Created: %s\n", issue.CreatedAt))
-				if issue.ClosedAt != "" {
-					builder.WriteString(fmt.Sprintf("- Closed: %s\n", issue.ClosedAt))
-				}
-				if len(issue.Labels) > 0 {
-					labels := make([]string, len(issue.Labels))
-					for j, label := range issue.Labels {
-						labels[j] = label.Name
-					}
-					builder.WriteString(fmt.Sprintf("- Labels: %s\n", strings.Join(labels, ", ")))
-				}
-				if issue.Body != "" {
-					// Truncate issue body if too long
-					body := issue.Body
-					if len(body) > 300 {
-						body = body[:300] + "..."
-					}
-					builder.WriteString(fmt.Sprintf("- Description: %s\n", body))
-				}
-
-				// Add comments if available
-				if len(issue.Comments) > 0 {
-					builder.WriteString(fmt.Sprintf("- Comments (%d):\n", len(issue.Comments)))
-					commentCount := 0
-					for _, comment := range issue.Comments {
-						if commentCount >= 3 { // Limit to 3 most relevant comments
-							break
-						}
-						commentBody := comment.Body
-						if len(commentBody) > 150 {
-							commentBody = commentBody[:150] + "..."
-						}
-						builder.WriteString(fmt.Sprintf("  * %s: %s\n", comment.User.Login, commentBody))
-						commentCount++
-					}
-				}
-
-				builder.WriteString("\n")
-			}
-		}
-	}
-
-	// Add GitHub user activity if available
-	if req.GitHubContext != nil && len(req.GitHubContext.UserActivity) > 0 {
-		builder.WriteString("\n" + strings.Repeat("=", 50) + "\n")
-		builder.WriteString(fmt.Sprintf("GITHUB USER ACTIVITY (%s):\n", req.GitHubContext.GitHubUsername))
-		builder.WriteString(strings.Repeat("=", 50) + "\n\n")
-
-		activityTypes := make(map[string]int)
-
-		builder.WriteString("GitHub activities during the specified period:\n\n")
-		for i, activity := range req.GitHubContext.UserActivity {
-			activityTypes[activity.Type]++
-
-			builder.WriteString(fmt.Sprintf("Activity %d:\n", i+1))
-			builder.WriteString(fmt.Sprintf("- Type: %s\n", activity.Type))
-			builder.WriteString(fmt.Sprintf("- Date: %s\n", activity.CreatedAt))
-			if activity.Repo.Name != "" {
-				builder.WriteString(fmt.Sprintf("- Repository: %s\n", activity.Repo.Name))
-			}
-
-			// Add specific details based on activity type
-			switch activity.Type {
-			case "PushEvent":
-				if len(activity.Payload.Commits) > 0 {
-					builder.WriteString(fmt.Sprintf("- Commits: %d\n", len(activity.Payload.Commits)))
-					if activity.Payload.Commits[0].Message != "" {
-						message := activity.Payload.Commits[0].Message
-						if len(message) > 100 {
-							message = message[:100] + "..."
-						}
-						builder.WriteString(fmt.Sprintf("- Latest commit: %s\n", message))
-					}
-				}
-			case "PullRequestEvent":
-				if activity.Payload.Action != "" {
-					builder.WriteString(fmt.Sprintf("- Action: %s\n", activity.Payload.Action))
-				}
-				if activity.Payload.Number > 0 {
-					builder.WriteString(fmt.Sprintf("- PR Number: #%d\n", activity.Payload.Number))
-				}
-			case "IssuesEvent":
-				if activity.Payload.Action != "" {
-					builder.WriteString(fmt.Sprintf("- Action: %s\n", activity.Payload.Action))
-				}
-				if activity.Payload.Number > 0 {
-					builder.WriteString(fmt.Sprintf("- Issue Number: #%d\n", activity.Payload.Number))
-				}
-			case "CreateEvent":
-				if activity.Payload.Ref != "" {
-					builder.WriteString(fmt.Sprintf("- Created: %s\n", activity.Payload.Ref))
-				}
-			}
-
-			builder.WriteString("\n")
-		}
-
-		// Add activity summary
-		builder.WriteString("Activity Summary:\n")
-		for actType, count := range activityTypes {
-			builder.WriteString(fmt.Sprintf("- %s: %d times\n", actType, count))
-		}
-		builder.WriteString("\n")
+	// GitHub metrics
+	if req.GitHubContext != nil && req.GitHubContext.ComprehensiveActivity != nil {
+		activity := req.GitHubContext.ComprehensiveActivity
+		totalActivity := len(activity.PullRequests) + len(activity.Issues) + len(activity.Events)
+		builder.WriteString(fmt.Sprintf("\n**GitHub Contributions:** %d total\n", totalActivity))
+		builder.WriteString(fmt.Sprintf("- Pull Requests: %d\n", len(activity.PullRequests)))
+		builder.WriteString(fmt.Sprintf("- Issues: %d\n", len(activity.Issues)))
+		builder.WriteString(fmt.Sprintf("- Other Activities: %d\n", len(activity.Events)))
 	}
 
 	return builder.String()
+}
+
+// addJiraData adds Jira issues data to the prompt builder
+func (c *Client) addJiraData(builder *strings.Builder, req SummaryRequest) {
+	builder.WriteString("JIRA ISSUES DATA:\n")
+
+	if len(req.Issues) == 0 {
+		builder.WriteString("No Jira issues found for this period.\n")
+		return
+	}
+
+	// Group issues by project
+	projectGroups := make(map[string][]jira.Issue)
+	for _, issue := range req.Issues {
+		project := extractProjectFromKey(issue.Key)
+		projectGroups[project] = append(projectGroups[project], issue)
+	}
+
+	// Output issues grouped by project
+	for project, issues := range projectGroups {
+		fmt.Fprintf(builder, "\n%s PROJECT (%d issues):\n", project, len(issues))
+		for _, issue := range issues {
+			fmt.Fprintf(builder, "- %s: %s [%s]\n", issue.Key, issue.Summary, issue.Status)
+			if issue.Description != "" && len(issue.Description) > 0 {
+				desc := issue.Description
+				if len(desc) > 150 {
+					desc = desc[:150] + "..."
+				}
+				fmt.Fprintf(builder, "  Context: %s\n", desc)
+			}
+		}
+	}
+}
+
+// addGitHubData adds GitHub activity data to the prompt builder
+func (c *Client) addGitHubData(builder *strings.Builder, req SummaryRequest) {
+	builder.WriteString("GITHUB ACTIVITY DATA:\n")
+
+	if req.GitHubContext == nil || req.GitHubContext.ComprehensiveActivity == nil {
+		builder.WriteString("No GitHub activity data available.\n")
+		return
+	}
+
+	activity := req.GitHubContext.ComprehensiveActivity
+
+	// Summarize PRs by repository
+	if len(activity.PullRequests) > 0 {
+		fmt.Fprintf(builder, "\nPull Requests (%d total):\n", len(activity.PullRequests))
+
+		repoGroups := make(map[string][]github.UserPullRequest)
+		for _, pr := range activity.PullRequests {
+			repoName := "unknown/repo"
+			if pr.RepositoryURL != "" {
+				parts := strings.Split(pr.RepositoryURL, "/")
+				if len(parts) >= 2 {
+					owner := parts[len(parts)-2]
+					repo := parts[len(parts)-1]
+					repoName = fmt.Sprintf("%s/%s", owner, repo)
+				}
+			}
+			repoGroups[repoName] = append(repoGroups[repoName], pr)
+		}
+
+		for repoName, prs := range repoGroups {
+			openCount := 0
+			closedCount := 0
+			for _, pr := range prs {
+				if pr.State == "open" {
+					openCount++
+				} else {
+					closedCount++
+				}
+			}
+			fmt.Fprintf(builder, "- %s: %d PRs (%d open, %d closed/merged)\n",
+				repoName, len(prs), openCount, closedCount)
+		}
+	}
+
+	// Add issues if any
+	if len(activity.Issues) > 0 {
+		fmt.Fprintf(builder, "\nIssues Reported (%d total):\n", len(activity.Issues))
+		for _, issue := range activity.Issues {
+			fmt.Fprintf(builder, "- %s: %s [%s]\n", issue.HTMLURL, issue.Title, issue.State)
+		}
+	}
 }
 
 // TestConnection tests the Ollama connection by making a simple request
@@ -539,7 +330,7 @@ func (c *Client) TestConnection(model string) error {
 
 	testReq := GenerateRequest{
 		Model:  model,
-		Prompt: "Say hello",
+		Prompt: "test",
 		Stream: false,
 	}
 

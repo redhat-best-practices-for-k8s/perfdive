@@ -239,14 +239,36 @@ func processUserActivity(email, startDate, endDate, model, jiraURL, jiraUsername
 			if githubUsername != "" {
 				// Use explicit GitHub username
 				fmt.Printf("ℹ Using explicit GitHub username '%s' (overriding email-based search)\n", githubUsername)
-				fmt.Printf("Fetching GitHub activity for explicit username: %s...\n", githubUsername)
+				fmt.Printf("Fetching comprehensive GitHub activity for username: %s...\n", githubUsername)
 
-				activities, err := githubClient.FetchUserActivity(githubUsername)
+				// Fetch comprehensive activity from multiple sources
+				comprehensiveActivity, err := githubClient.FetchComprehensiveUserActivity(githubUsername, startDateFormatted, endDateFormatted)
 				if err != nil {
-					fmt.Printf("⚠ Could not fetch GitHub user activity for %s: %v\n", githubUsername, err)
+					fmt.Printf("⚠ Could not fetch comprehensive GitHub activity for %s: %v\n", githubUsername, err)
+
+					// Fallback to legacy activity fetching
+					activities, err := githubClient.FetchUserActivity(githubUsername)
+					if err != nil {
+						fmt.Printf("⚠ Could not fetch GitHub user activity for %s: %v\n", githubUsername, err)
+					} else {
+						userActivity = githubClient.FilterActivityByDateRange(activities, startDateFormatted, endDateFormatted)
+						foundUsername = githubUsername
+					}
 				} else {
-					userActivity = githubClient.FilterActivityByDateRange(activities, startDateFormatted, endDateFormatted)
+					// Use comprehensive activity
 					foundUsername = githubUsername
+					if githubContext == nil {
+						githubContext = &ghclient.GitHubContext{}
+					}
+					githubContext.ComprehensiveActivity = comprehensiveActivity
+					githubContext.GitHubUsername = foundUsername
+
+					totalActivity := len(comprehensiveActivity.Events) + len(comprehensiveActivity.PullRequests) + len(comprehensiveActivity.Issues)
+					fmt.Printf("✓ Found GitHub user '%s' with %d total activities in date range\n", foundUsername, totalActivity)
+					fmt.Printf("  - Events: %d, Pull Requests: %d, Issues: %d\n",
+						len(comprehensiveActivity.Events),
+						len(comprehensiveActivity.PullRequests),
+						len(comprehensiveActivity.Issues))
 				}
 			} else {
 				// Fall back to email-based search
@@ -257,7 +279,8 @@ func processUserActivity(email, startDate, endDate, model, jiraURL, jiraUsername
 				}
 			}
 
-			if err == nil && len(userActivity) >= 0 {
+			// Handle legacy userActivity if we didn't use comprehensive fetching
+			if err == nil && len(userActivity) >= 0 && (githubContext == nil || githubContext.ComprehensiveActivity == nil) {
 				if githubContext == nil {
 					githubContext = &ghclient.GitHubContext{}
 				}
@@ -320,7 +343,7 @@ func processUserActivity(email, startDate, endDate, model, jiraURL, jiraUsername
 
 		// List GitHub URLs
 		if githubContext != nil && len(githubContext.References) > 0 {
-			fmt.Println("\nGitHub References:")
+			fmt.Println("\nGitHub References from Jira:")
 			for _, ref := range githubContext.References {
 				fmt.Printf("- %s/%s #%s: %s\n", ref.Owner, ref.Repo, ref.Number, ref.URL)
 			}
