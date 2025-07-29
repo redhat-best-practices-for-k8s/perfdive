@@ -27,6 +27,7 @@ type Issue struct {
 	Summary      string
 	Description  string
 	Status       string
+	IssueType    string `json:"issue_type,omitempty"`
 	Assignee     string
 	Created      time.Time
 	Updated      time.Time
@@ -194,6 +195,9 @@ func (c *Client) enhanceIssueWithContext(issue Issue, verbose bool) (Issue, erro
 		if enhancedFields.Priority != "" {
 			issue.Priority = enhancedFields.Priority
 		}
+		if enhancedFields.IssueType != "" {
+			issue.IssueType = enhancedFields.IssueType
+		}
 		if enhancedFields.TimeTracking != nil {
 			issue.TimeTracking = enhancedFields.TimeTracking
 		}
@@ -352,13 +356,14 @@ type EnhancedFields struct {
 	Labels       []string
 	Components   []string
 	Priority     string
+	IssueType    string
 	TimeTracking *TimeTracking
 	CustomFields map[string]interface{}
 }
 
 // fetchEnhancedFields retrieves additional field data for an issue
 func (c *Client) fetchEnhancedFields(jiraClient *JiraAPIClient, issueKey string) (EnhancedFields, error) {
-	url := fmt.Sprintf("%s/rest/api/2/issue/%s?fields=labels,components,priority,timetracking", jiraClient.baseURL, issueKey)
+	url := fmt.Sprintf("%s/rest/api/2/issue/%s?fields=labels,components,priority,issuetype,timetracking", jiraClient.baseURL, issueKey)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -389,6 +394,9 @@ func (c *Client) fetchEnhancedFields(jiraClient *JiraAPIClient, issueKey string)
 			Priority struct {
 				Name string `json:"name"`
 			} `json:"priority"`
+			IssueType struct {
+				Name string `json:"name"`
+			} `json:"issuetype"`
 			TimeTracking struct {
 				OriginalEstimate         string `json:"originalEstimate"`
 				RemainingEstimate        string `json:"remainingEstimate"`
@@ -427,6 +435,7 @@ func (c *Client) fetchEnhancedFields(jiraClient *JiraAPIClient, issueKey string)
 		Labels:       labels,
 		Components:   components,
 		Priority:     response.Fields.Priority.Name,
+		IssueType:    response.Fields.IssueType.Name,
 		TimeTracking: timeTracking,
 		CustomFields: make(map[string]interface{}), // For future extension
 	}, nil
@@ -441,6 +450,9 @@ func convertJiraCrawlerIssue(jcIssue lib.Issue) (Issue, error) {
 	issue.Summary = jcIssue.Summary
 	issue.Description = jcIssue.Description
 	issue.Status = jcIssue.Status.Name
+
+	// Issue type
+	issue.IssueType = jcIssue.IssueType.Name
 
 	// Assignee (can be nil)
 	if jcIssue.Assignee != nil {
