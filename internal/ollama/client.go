@@ -111,8 +111,29 @@ func (c *Client) generateJiraSummary(req SummaryRequest) (string, error) {
 
 // generateGitHubSummary creates a focused summary of GitHub work
 func (c *Client) generateGitHubSummary(req SummaryRequest) (string, error) {
+	// Check if there's meaningful GitHub activity to analyze
+	if !c.hasMeaningfulGitHubActivity(req) {
+		userName := req.Email
+		if req.DisplayName != "" {
+			userName = req.DisplayName
+		}
+
+		return fmt.Sprintf("No meaningful GitHub development activity found for %s during the specified period (%s to %s).\n\nWhile some GitHub events may have been detected, there were no pull requests created or issues reported that would indicate active development contributions.",
+			userName, req.StartDate, req.EndDate), nil
+	}
+
 	prompt := c.buildGitHubPrompt(req)
 	return c.callOllama(req.Model, prompt)
+}
+
+// hasMeaningfulGitHubActivity checks if there are meaningful GitHub contributions (PRs or issues)
+func (c *Client) hasMeaningfulGitHubActivity(req SummaryRequest) bool {
+	if req.GitHubContext == nil || req.GitHubContext.ComprehensiveActivity == nil {
+		return false
+	}
+
+	activity := req.GitHubContext.ComprehensiveActivity
+	return len(activity.PullRequests) > 0 || len(activity.Issues) > 0
 }
 
 // callOllama makes the actual API call to Ollama
@@ -258,7 +279,11 @@ func (c *Client) addJiraData(builder *strings.Builder, req SummaryRequest) {
 	for project, issues := range projectGroups {
 		fmt.Fprintf(builder, "\n%s PROJECT (%d issues):\n", project, len(issues))
 		for _, issue := range issues {
-			fmt.Fprintf(builder, "- %s: %s [%s]\n", issue.Key, issue.Summary, issue.Status)
+			issueTypeDisplay := ""
+			if issue.IssueType != "" {
+				issueTypeDisplay = fmt.Sprintf(" (%s)", issue.IssueType)
+			}
+			fmt.Fprintf(builder, "- %s%s: %s [%s]\n", issue.Key, issueTypeDisplay, issue.Summary, issue.Status)
 			if issue.Description != "" && len(issue.Description) > 0 {
 				desc := issue.Description
 				if len(desc) > 150 {
