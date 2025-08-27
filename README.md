@@ -16,7 +16,7 @@ A Golang CLI application that fetches Jira issues assigned to a user within a da
 
 ### Prerequisites
 
-- Go 1.24.5 or later
+- Go 1.25.0 or later
 - Access to a Jira instance with API access
 - Ollama running locally or accessible via network
 
