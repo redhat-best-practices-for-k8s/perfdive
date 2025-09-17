@@ -3,13 +3,13 @@ module github.com/redhat-best-practices-for-k8s/perfdive
 go 1.25.1
 
 require (
-	github.com/sebrandon1/jiracrawler v0.0.9
+	github.com/sebrandon1/jiracrawler v0.0.10
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
 )
 
 require (
-	github.com/andygrunwald/go-jira v1.16.0 // indirect
+	github.com/andygrunwald/go-jira v1.16.1 // indirect
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
