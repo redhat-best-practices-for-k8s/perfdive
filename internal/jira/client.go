@@ -3,6 +3,7 @@ package jira
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -151,6 +152,46 @@ func (c *Client) GetUserIssuesInDateRangeWithContext(email, startDate, endDate s
 	return issues, nil
 }
 
+// IssuePermissions represents permissions for an issue
+type IssuePermissions struct {
+	CanViewComments bool
+	CanViewHistory  bool
+	CanViewIssue    bool
+}
+
+// checkIssuePermissions verifies what permissions the user has for an issue
+func (c *Client) checkIssuePermissions(jiraClient *JiraAPIClient, issueKey string) (IssuePermissions, error) {
+	url := fmt.Sprintf("%s/rest/api/2/issue/%s?fields=id", jiraClient.baseURL, issueKey)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return IssuePermissions{}, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.SetBasicAuth(jiraClient.username, jiraClient.token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := jiraClient.httpClient.Do(req)
+	if err != nil {
+		return IssuePermissions{}, fmt.Errorf("failed to check permissions: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	permissions := IssuePermissions{
+		CanViewIssue:    resp.StatusCode == http.StatusOK,
+		CanViewComments: resp.StatusCode == http.StatusOK,
+		CanViewHistory:  resp.StatusCode == http.StatusOK,
+	}
+
+	// If we can't view the basic issue, we definitely can't view comments or history
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+		permissions.CanViewComments = false
+		permissions.CanViewHistory = false
+	}
+
+	return permissions, nil
+}
+
 // enhanceIssueWithContext fetches additional context for an issue (comments, history, etc.)
 func (c *Client) enhanceIssueWithContext(issue Issue, verbose bool) (Issue, error) {
 	// Create a direct Jira client to fetch additional data
@@ -159,33 +200,60 @@ func (c *Client) enhanceIssueWithContext(issue Issue, verbose bool) (Issue, erro
 		return issue, fmt.Errorf("failed to create Jira API client: %w", err)
 	}
 
-	// Fetch comments
-	comments, err := c.fetchIssueComments(jiraClient, issue.Key)
+	if verbose {
+		fmt.Printf("Fetching enhanced context for issue %s...\n", issue.Key)
+	}
+
+	// Check permissions first
+	permissions, err := c.checkIssuePermissions(jiraClient, issue.Key)
 	if err != nil {
 		if verbose {
-			fmt.Printf("Warning: failed to fetch comments for %s: %v\n", issue.Key, err)
+			fmt.Printf("Warning: failed to check permissions for %s: %v\n", issue.Key, err)
 		}
-	} else {
-		issue.Comments = comments
+		// Continue anyway, we'll get errors on individual fetches if needed
+	} else if !permissions.CanViewIssue {
+		fmt.Printf("Warning: insufficient permissions to view issue %s - skipping enhanced context\n", issue.Key)
+		return issue, nil
+	}
+
+	// Fetch comments
+	if permissions.CanViewComments {
+		comments, err := c.fetchIssueComments(jiraClient, issue.Key)
+		if err != nil {
+			fmt.Printf("Warning: failed to fetch comments for %s: %v\n", issue.Key, err)
+		} else {
+			issue.Comments = comments
+			if verbose {
+				fmt.Printf("  ✓ Fetched %d comments for %s\n", len(comments), issue.Key)
+			}
+		}
+	} else if verbose {
+		fmt.Printf("  ⊘ Skipping comments for %s (insufficient permissions)\n", issue.Key)
 	}
 
 	// Fetch history
-	history, err := c.fetchIssueHistory(jiraClient, issue.Key)
-	if err != nil {
-		if verbose {
+	if permissions.CanViewHistory {
+		history, err := c.fetchIssueHistory(jiraClient, issue.Key)
+		if err != nil {
 			fmt.Printf("Warning: failed to fetch history for %s: %v\n", issue.Key, err)
+		} else {
+			issue.History = history
+			if verbose {
+				fmt.Printf("  ✓ Fetched %d history entries for %s\n", len(history), issue.Key)
+			}
 		}
-	} else {
-		issue.History = history
+	} else if verbose {
+		fmt.Printf("  ⊘ Skipping history for %s (insufficient permissions)\n", issue.Key)
 	}
 
 	// Fetch additional fields that might be available
 	enhancedFields, err := c.fetchEnhancedFields(jiraClient, issue.Key)
 	if err != nil {
-		if verbose {
-			fmt.Printf("Warning: failed to fetch enhanced fields for %s: %v\n", issue.Key, err)
-		}
+		fmt.Printf("Warning: failed to fetch enhanced fields for %s: %v\n", issue.Key, err)
 	} else {
+		if verbose {
+			fmt.Printf("  ✓ Fetched enhanced fields for %s\n", issue.Key)
+		}
 		if enhancedFields.Labels != nil {
 			issue.Labels = enhancedFields.Labels
 		}
@@ -246,7 +314,13 @@ func (c *Client) fetchIssueComments(jiraClient *JiraAPIClient, issueKey string) 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("jira API returned status %d", resp.StatusCode)
+		// Read response body for more details
+		var bodyBytes []byte
+		bodyBytes, _ = io.ReadAll(resp.Body)
+		bodyStr := string(bodyBytes)
+
+		return nil, fmt.Errorf("jira API returned status %d for URL %s (user: %s): %s",
+			resp.StatusCode, url, jiraClient.username, bodyStr)
 	}
 
 	var response struct {
@@ -301,7 +375,13 @@ func (c *Client) fetchIssueHistory(jiraClient *JiraAPIClient, issueKey string) (
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("jira API returned status %d", resp.StatusCode)
+		// Read response body for more details
+		var bodyBytes []byte
+		bodyBytes, _ = io.ReadAll(resp.Body)
+		bodyStr := string(bodyBytes)
+
+		return nil, fmt.Errorf("jira API returned status %d for URL %s (user: %s): %s",
+			resp.StatusCode, url, jiraClient.username, bodyStr)
 	}
 
 	var response struct {
@@ -380,7 +460,13 @@ func (c *Client) fetchEnhancedFields(jiraClient *JiraAPIClient, issueKey string)
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return EnhancedFields{}, fmt.Errorf("jira API returned status %d", resp.StatusCode)
+		// Read response body for more details
+		var bodyBytes []byte
+		bodyBytes, _ = io.ReadAll(resp.Body)
+		bodyStr := string(bodyBytes)
+
+		return EnhancedFields{}, fmt.Errorf("jira API returned status %d for URL %s (user: %s): %s",
+			resp.StatusCode, url, jiraClient.username, bodyStr)
 	}
 
 	var response struct {
@@ -480,8 +566,79 @@ func convertJiraCrawlerIssue(jcIssue lib.Issue) (Issue, error) {
 	return issue, nil
 }
 
+// UserInfo represents information about the authenticated user
+type UserInfo struct {
+	Username    string
+	DisplayName string
+	Email       string
+	Active      bool
+}
+
+// VerifyAuthentication checks if the authentication is working and returns user info
+func (c *Client) VerifyAuthentication() (*UserInfo, error) {
+	jiraClient, err := c.createJiraAPIClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Jira API client: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/rest/api/2/myself", jiraClient.baseURL)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.SetBasicAuth(jiraClient.username, jiraClient.token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := jiraClient.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify authentication: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		var bodyBytes []byte
+		bodyBytes, _ = io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("authentication failed (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var bodyBytes []byte
+		bodyBytes, _ = io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var response struct {
+		Name         string `json:"name"`
+		DisplayName  string `json:"displayName"`
+		EmailAddress string `json:"emailAddress"`
+		Active       bool   `json:"active"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode user info response: %w", err)
+	}
+
+	return &UserInfo{
+		Username:    response.Name,
+		DisplayName: response.DisplayName,
+		Email:       response.EmailAddress,
+		Active:      response.Active,
+	}, nil
+}
+
 // TestConnection tests the Jira connection by attempting to fetch a minimal query
 func (c *Client) TestConnection() error {
+	// Try to verify authentication (non-fatal)
+	userInfo, err := c.VerifyAuthentication()
+	if err != nil {
+		fmt.Printf("  Warning: Could not verify user details (%v)\n", err)
+		fmt.Printf("  Note: Enhanced context (comments, history) may be limited\n")
+	} else {
+		fmt.Printf("  Authenticated as: %s (%s)\n", userInfo.DisplayName, userInfo.Email)
+	}
+
 	// Use jiracrawler to test connection by fetching a small date range
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	today := time.Now().Format("2006-01-02")
