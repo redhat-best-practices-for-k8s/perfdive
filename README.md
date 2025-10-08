@@ -1,5 +1,9 @@
 # perfdive
 
+[![Nightly](https://github.com/redhat-best-practices-for-k8s/perfdive/actions/workflows/nightly.yml/badge.svg)](https://github.com/redhat-best-practices-for-k8s/perfdive/actions/workflows/nightly.yml)
+[![Pre-Main](https://github.com/redhat-best-practices-for-k8s/perfdive/actions/workflows/pre-main.yml/badge.svg)](https://github.com/redhat-best-practices-for-k8s/perfdive/actions/workflows/pre-main.yml)
+[![Release Binaries](https://github.com/redhat-best-practices-for-k8s/perfdive/actions/workflows/release-binaries.yaml/badge.svg)](https://github.com/redhat-best-practices-for-k8s/perfdive/actions/workflows/release-binaries.yaml)
+
 A Golang CLI application that fetches Jira issues assigned to a user within a date range and generates AI-powered summaries using Ollama.
 
 ## Features
