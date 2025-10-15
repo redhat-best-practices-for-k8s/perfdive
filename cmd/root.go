@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/sebrandon1/jiracrawler/lib"
+
 	ghclient "github.com/redhat-best-practices-for-k8s/perfdive/internal/github"
 	"github.com/redhat-best-practices-for-k8s/perfdive/internal/jira"
 	"github.com/redhat-best-practices-for-k8s/perfdive/internal/ollama"
@@ -62,6 +64,7 @@ func init() {
 	rootCmd.Flags().StringP("github-username", "", "", "Explicit GitHub username (overrides email-based search)")
 	rootCmd.Flags().BoolP("github-activity", "a", false, "Fetch user's GitHub activity via email search (auto-enabled if --github-username provided)")
 	rootCmd.Flags().BoolP("verbose", "v", false, "Enable verbose output including warnings and debug information")
+	rootCmd.Flags().IntP("rate-limit-delay", "r", 500, "Delay between Jira API requests in milliseconds (default 500ms, increase if seeing rate limit errors)")
 
 	// Bind flags to viper
 	_ = viper.BindPFlag("jira.url", rootCmd.Flags().Lookup("jira-url"))
@@ -73,6 +76,7 @@ func init() {
 	_ = viper.BindPFlag("github.username", rootCmd.Flags().Lookup("github-username"))
 	_ = viper.BindPFlag("github.activity", rootCmd.Flags().Lookup("github-activity"))
 	_ = viper.BindPFlag("verbose", rootCmd.Flags().Lookup("verbose"))
+	_ = viper.BindPFlag("rate_limit_delay", rootCmd.Flags().Lookup("rate-limit-delay"))
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -123,6 +127,7 @@ func runPerfdive(cmd *cobra.Command, args []string) {
 	githubUsername := viper.GetString("github.username")
 	fetchGitHubActivity := viper.GetBool("github.activity")
 	verbose := viper.GetBool("verbose")
+	rateLimitDelay := viper.GetInt("rate_limit_delay")
 
 	// Validate required configuration
 	if jiraURL == "" {
@@ -138,7 +143,7 @@ func runPerfdive(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	err := processUserActivity(email, startDate, endDate, model, jiraURL, jiraUsername, jiraToken, ollamaURL, outputFormat, githubToken, githubUsername, fetchGitHubActivity, verbose)
+	err := processUserActivity(email, startDate, endDate, model, jiraURL, jiraUsername, jiraToken, ollamaURL, outputFormat, githubToken, githubUsername, fetchGitHubActivity, verbose, rateLimitDelay)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -146,7 +151,14 @@ func runPerfdive(cmd *cobra.Command, args []string) {
 }
 
 // processUserActivity handles the core logic of fetching Jira issues and generating summaries
-func processUserActivity(email, startDate, endDate, model, jiraURL, jiraUsername, jiraToken, ollamaURL, outputFormat, githubToken, githubUsername string, fetchGitHubActivity, verbose bool) error {
+func processUserActivity(email, startDate, endDate, model, jiraURL, jiraUsername, jiraToken, ollamaURL, outputFormat, githubToken, githubUsername string, fetchGitHubActivity, verbose bool, rateLimitDelay int) error {
+	// Configure jiracrawler's global rate limiter to avoid 429 errors
+	rateLimiter := lib.NewRateLimiter(time.Duration(rateLimitDelay)*time.Millisecond, 3)
+	lib.SetGlobalRateLimiter(rateLimiter)
+	if verbose {
+		fmt.Printf("Configured rate limiter: %dms delay between requests, 3 retries\n", rateLimitDelay)
+	}
+
 	// Create Jira client
 	jiraClient, err := jira.NewClient(jira.Config{
 		URL:      jiraURL,
@@ -294,8 +306,8 @@ func processUserActivity(email, startDate, endDate, model, jiraURL, jiraUsername
 	// Extract user's display name from Jira issues
 	var displayName string
 	for _, issue := range issues {
-		if issue.Assignee != "" {
-			displayName = issue.Assignee
+		if issue.Assignee != nil && issue.Assignee.DisplayName != "" {
+			displayName = issue.Assignee.DisplayName
 			break // Use the first non-empty assignee name we find
 		}
 	}
