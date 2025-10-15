@@ -206,6 +206,8 @@ Example:
 - `--github-token` (`-g`): GitHub API token (optional, for private repos)
 - `--github-activity` (`-a`): Fetch user's GitHub activity by matching email (requires GitHub token)
 - `--output` (`-f`): Output format - "text" or "json" (default: text)
+- `--rate-limit-delay` (`-r`): Delay between Jira API requests in milliseconds (default: 500ms, increase if seeing rate limit errors)
+- `--verbose` (`-v`): Enable verbose output including warnings and debug information
 - `--config`: Path to config file (default: $HOME/.perfdive.yaml)
 
 ### Output Formats

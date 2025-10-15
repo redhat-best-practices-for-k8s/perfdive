@@ -280,10 +280,10 @@ func (c *Client) addJiraData(builder *strings.Builder, req SummaryRequest) {
 		fmt.Fprintf(builder, "\n%s PROJECT (%d issues):\n", project, len(issues))
 		for _, issue := range issues {
 			issueTypeDisplay := ""
-			if issue.IssueType != "" {
-				issueTypeDisplay = fmt.Sprintf(" (%s)", issue.IssueType)
+			if issue.IssueType.Name != "" {
+				issueTypeDisplay = fmt.Sprintf(" (%s)", issue.IssueType.Name)
 			}
-			fmt.Fprintf(builder, "- %s%s: %s [%s]\n", issue.Key, issueTypeDisplay, issue.Summary, issue.Status)
+			fmt.Fprintf(builder, "- %s%s: %s [%s]\n", issue.Key, issueTypeDisplay, issue.Summary, issue.Status.Name)
 			if issue.Description != "" && len(issue.Description) > 0 {
 				desc := issue.Description
 				if len(desc) > 150 {
