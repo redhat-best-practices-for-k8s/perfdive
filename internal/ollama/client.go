@@ -136,6 +136,12 @@ func (c *Client) hasMeaningfulGitHubActivity(req SummaryRequest) bool {
 	return len(activity.PullRequests) > 0 || len(activity.Issues) > 0
 }
 
+// CallOllama makes the actual API call to Ollama with a simple prompt
+// This is exported for use by other commands like highlight
+func (c *Client) CallOllama(model, prompt string) (string, error) {
+	return c.callOllama(model, prompt)
+}
+
 // callOllama makes the actual API call to Ollama
 func (c *Client) callOllama(model, prompt string) (string, error) {
 	ollamaReq := GenerateRequest{

@@ -1,4 +1,4 @@
-name: Test Incoming Changesgi
+name: Test Incoming Changes
 
 on:
   pull_request:
