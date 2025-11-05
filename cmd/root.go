@@ -75,6 +75,7 @@ func init() {
 	_ = viper.BindPFlag("github.token", rootCmd.Flags().Lookup("github-token"))
 	_ = viper.BindPFlag("github.username", rootCmd.Flags().Lookup("github-username"))
 	_ = viper.BindPFlag("github.activity", rootCmd.Flags().Lookup("github-activity"))
+	_ = viper.BindPFlag("github.gist_url", rootCmd.Flags().Lookup("github-gist-url"))
 	_ = viper.BindPFlag("verbose", rootCmd.Flags().Lookup("verbose"))
 	_ = viper.BindPFlag("rate_limit_delay", rootCmd.Flags().Lookup("rate-limit-delay"))
 }

@@ -6,6 +6,10 @@ VERSION?=dev
 BUILD_TIME=$(shell date +%Y-%m-%d_%H:%M:%S)
 LDFLAGS=-ldflags "-X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}"
 
+# Installation directory (can be overridden with: make install PREFIX=/usr/local)
+PREFIX?=$(HOME)/.local
+INSTALL_DIR=$(PREFIX)/bin
+
 # Default target
 .DEFAULT_GOAL := build
 
@@ -13,6 +17,26 @@ LDFLAGS=-ldflags "-X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}"
 .PHONY: build
 build:
 	go build -o ${BINARY_NAME} ${LDFLAGS} .
+
+# Install the binary to PATH
+.PHONY: install
+install: build
+	@echo "Installing ${BINARY_NAME} to ${INSTALL_DIR}..."
+	@mkdir -p ${INSTALL_DIR}
+	@cp ${BINARY_NAME} ${INSTALL_DIR}/${BINARY_NAME}
+	@chmod +x ${INSTALL_DIR}/${BINARY_NAME}
+	@echo "✓ Installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}"
+	@echo ""
+	@echo "Make sure ${INSTALL_DIR} is in your PATH."
+	@echo "Add this to your shell profile if needed:"
+	@echo "  export PATH=\"${INSTALL_DIR}:\$$PATH\""
+
+# Uninstall the binary from PATH
+.PHONY: uninstall
+uninstall:
+	@echo "Uninstalling ${BINARY_NAME} from ${INSTALL_DIR}..."
+	@rm -f ${INSTALL_DIR}/${BINARY_NAME}
+	@echo "✓ Uninstalled ${BINARY_NAME}"
 
 # Clean build artifacts
 .PHONY: clean
@@ -79,6 +103,8 @@ run: build
 help:
 	@echo "Available targets:"
 	@echo "  build      - Build the perfdive binary"
+	@echo "  install    - Build and install to ${INSTALL_DIR} (use PREFIX=/path to customize)"
+	@echo "  uninstall  - Remove installed binary from ${INSTALL_DIR}"
 	@echo "  clean      - Remove build artifacts"
 	@echo "  test       - Run tests"
 	@echo "  integration-test - Run integration tests"

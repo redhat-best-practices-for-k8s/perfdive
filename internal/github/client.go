@@ -1,6 +1,7 @@
 package github
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -843,4 +844,110 @@ func (c *Client) FilterIssuesByDateRange(issues []UserIssue, startDate, endDate 
 	}
 
 	return filtered
+}
+
+// Gist represents a GitHub Gist
+type Gist struct {
+	ID          string                 `json:"id"`
+	Description string                 `json:"description"`
+	Public      bool                   `json:"public"`
+	Files       map[string]GistFile    `json:"files"`
+	HTMLURL     string                 `json:"html_url"`
+	UpdatedAt   string                 `json:"updated_at"`
+}
+
+// GistFile represents a file in a Gist
+type GistFile struct {
+	Filename string `json:"filename"`
+	Type     string `json:"type"`
+	Language string `json:"language"`
+	RawURL   string `json:"raw_url"`
+	Size     int    `json:"size"`
+	Content  string `json:"content,omitempty"`
+}
+
+// GistUpdate represents the structure for updating a Gist
+type GistUpdate struct {
+	Description string                 `json:"description,omitempty"`
+	Files       map[string]GistFile    `json:"files"`
+}
+
+// GetGist retrieves a Gist by ID
+func (c *Client) GetGist(gistID string) (*Gist, error) {
+	url := fmt.Sprintf("%s/gists/%s", c.baseURL, gistID)
+
+	var gist Gist
+	result, err := c.makeGitHubRequest(url, &gist)
+	if err != nil {
+		return nil, err
+	}
+
+	return result.(*Gist), nil
+}
+
+// UpdateGist updates a Gist's content
+func (c *Client) UpdateGist(gistID string, update GistUpdate) (*Gist, error) {
+	url := fmt.Sprintf("%s/gists/%s", c.baseURL, gistID)
+
+	reqBody, err := json.Marshal(update)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal update: %w", err)
+	}
+
+	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, err
+	}
+
+	if c.token == "" {
+		return nil, fmt.Errorf("GitHub token required for updating gists")
+	}
+
+	req.Header.Set("Authorization", "token "+c.token)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	}
+
+	var gist Gist
+	if err := json.NewDecoder(resp.Body).Decode(&gist); err != nil {
+		return nil, err
+	}
+
+	return &gist, nil
+}
+
+// ExtractGistIDFromURL extracts the Gist ID from a GitHub Gist URL
+func ExtractGistIDFromURL(gistURL string) (string, error) {
+	// Handle various Gist URL formats:
+	// https://gist.github.com/username/abc123
+	// https://gist.github.com/abc123
+	// abc123 (just the ID)
+	
+	if !strings.Contains(gistURL, "gist.github.com") && !strings.Contains(gistURL, "/") {
+		// Assume it's just the ID
+		return gistURL, nil
+	}
+
+	parts := strings.Split(gistURL, "/")
+	if len(parts) == 0 {
+		return "", fmt.Errorf("invalid gist URL format")
+	}
+
+	// Get the last non-empty part
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i] != "" {
+			return parts[i], nil
+		}
+	}
+
+	return "", fmt.Errorf("could not extract gist ID from URL")
 }

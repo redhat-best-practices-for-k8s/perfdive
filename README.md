@@ -4,10 +4,13 @@
 [![Pre-Main](https://github.com/redhat-best-practices-for-k8s/perfdive/actions/workflows/pre-main.yml/badge.svg)](https://github.com/redhat-best-practices-for-k8s/perfdive/actions/workflows/pre-main.yml)
 [![Release Binaries](https://github.com/redhat-best-practices-for-k8s/perfdive/actions/workflows/release-binaries.yaml/badge.svg)](https://github.com/redhat-best-practices-for-k8s/perfdive/actions/workflows/release-binaries.yaml)
 
-A Golang CLI application that fetches Jira issues assigned to a user within a date range and generates AI-powered summaries using Ollama.
+A Golang CLI application for tracking and summarizing your work. Get quick weekly highlights or deep-dive into Jira and GitHub activity with AI-powered summaries using Ollama.
 
 ## Features
 
+- **Quick Highlights**: Simple `highlight` command for instant weekly summaries with bullet points
+- **Automatic Journaling**: Maintain a running log in GitHub Gist - configure once, auto-updates forever
+- **AI-Powered Insights**: Uses Ollama to generate accomplishment summaries with "why" explanations
 - Fetches Jira issues assigned to a specific user within a date range
 - **GitHub Integration**: Automatically detects and fetches context from GitHub URLs in Jira issues
 - **GitHub User Activity**: Optional feature to fetch user's personal GitHub activity by matching their email
@@ -43,12 +46,20 @@ go build -o perfdive .
 The project includes a Makefile with the following targets:
 
 - `make build` - Build the perfdive binary
+- `make install` - Build and install to `~/.local/bin` (customize with `PREFIX=/path`)
+- `make uninstall` - Remove installed binary
 - `make clean` - Remove build artifacts  
 - `make test` - Run tests
 - `make fmt` - Format Go code
 - `make vet` - Run go vet
 - `make check` - Run fmt, vet, and test
 - `make help` - Show all available targets
+
+**Quick Install:**
+```bash
+make install
+# Now you can run: perfdive highlight your@email.com
+```
 
 ## Configuration
 
@@ -73,6 +84,7 @@ ollama:
 
 github:
   token: "your-github-token"  # Optional: for private repos or higher rate limits
+  gist_url: "https://gist.github.com/username/gist-id"  # Optional: for journal feature
 
 output:
   format: "text"  # "text" or "json"
@@ -179,6 +191,123 @@ Beyond just fetching context from GitHub URLs found in Jira issues, perfdive can
 
 ## Usage
 
+### Quick Highlight Summary
+
+For a quick, effortless summary of recent work, use the `highlight` command:
+
+```bash
+./perfdive highlight [email]
+```
+
+Example:
+```bash
+./perfdive highlight bpalm@redhat.com
+```
+
+This command generates a concise bullet-point list showing:
+- Number of PRs created (merged vs open)
+- Number of Jira stories created and updated
+- AI-generated biggest accomplishment
+
+**Options:**
+- `--days` or `-d`: Number of days to look back (default: 7)
+- `--github-username`: Use explicit GitHub username instead of email lookup
+- `--verbose` or `-v`: Show detailed progress information
+
+**Automatic Journaling:**
+If you configure `github.gist_url` in your config file, highlights will automatically be appended to your GitHub Gist journal. No flag needed!
+
+Examples:
+```bash
+# Quick summary for the last 7 days
+./perfdive highlight bpalm@redhat.com
+
+# Summary for the last 14 days
+./perfdive highlight bpalm@redhat.com --days 14
+
+# Use explicit GitHub username
+./perfdive highlight --github-username sebrandon1 bpalm@redhat.com
+
+# Show detailed progress (useful for debugging)
+./perfdive highlight bpalm@redhat.com --verbose
+
+# All commands automatically journal if gist_url is configured!
+```
+
+**Verbose Output Example:**
+```
+Generating highlight for bpalm@redhat.com (10-29-2025 to 11-05-2025)
+Date range: 7 days
+
+→ Creating Jira client...
+  ✓ Connected to https://issues.redhat.com
+→ Creating GitHub client...
+  ✓ GitHub token configured
+
+→ Fetching Jira issues for bpalm@redhat.com...
+→ Fetching GitHub activity...
+  ✓ Found 5 Jira issues
+  ✓ Found GitHub user 'bpalm' with 13 PRs, 2 issues
+
+→ Generating AI summary using Ollama...
+  Model: llama3.2:latest
+  Endpoint: http://localhost:11434
+  ✓ AI summary generated
+
+  💡 Why this is the biggest accomplishment:
+     This refactor addresses a critical security vulnerability that affected multiple 
+     services, demonstrating both technical depth and cross-functional impact. The 
+     merged PRs show completed implementation across the entire authentication stack.
+
+============================================================
+HIGHLIGHT SUMMARY
+============================================================
+
+- Created 13 PRs in the last 7 days (5 merged, 8 open)
+- Created 3 Jira stories and updated Jira 10 times
+- Biggest accomplishment: Implemented critical authentication refactor
+```
+
+**Note:** When using `--verbose`, the AI will explain *why* it chose that as your biggest accomplishment, providing context on the impact and significance of your work.
+
+#### Journal Feature
+
+The journal feature automatically maintains a running log of your highlights in a private GitHub Gist. Simply configure the `gist_url` once, and every highlight will be saved automatically.
+
+**Setup:**
+1. Create a new Gist on GitHub (public or private)
+2. Copy the Gist URL (e.g., `https://gist.github.com/username/abc123`)
+3. Add it to your `~/.perfdive.yaml`:
+   ```yaml
+   github:
+     token: "your-github-token"
+     gist_url: "https://gist.github.com/username/abc123"
+   ```
+
+**That's it!** Once configured, every time you run `./perfdive highlight`, it will automatically append to your journal.
+
+**Behavior:**
+- Automatic: No flags needed, just configure `gist_url` once
+- Entries are prepended (newest first) with date headers
+- Existing entries for the same date range are automatically replaced with updated data
+- Works with any file in the Gist (prefers files with "journal" in the name)
+- Includes AI-generated "why" explanation for your biggest accomplishment
+- Example output in Gist:
+  ```markdown
+  ## October 29, 2025 to November 5, 2025
+  - Created 13 PRs in the last 7 days (5 merged, 8 open)
+  - Created 3 Jira stories and updated Jira 10 times
+  - Biggest accomplishment: Implemented critical authentication refactor
+    - Why: This refactor addresses a critical security vulnerability that affected multiple services, demonstrating both technical depth and cross-functional impact. The merged PRs show completed implementation across the entire authentication stack.
+  
+  ---
+  
+  ## October 22, 2025 to October 29, 2025
+  ...
+  ```
+
+### Full Analysis Mode
+
 ### Basic Usage
 
 ```bash
@@ -247,6 +376,39 @@ During the specified period from 01-01-2025 to 01-31-2025, user@company.com was 
 ```
 
 ## Examples
+
+### Get a quick highlight of recent work
+
+```bash
+./perfdive highlight john.doe@company.com
+```
+
+Output:
+```
+- Created 13 PRs in the last 7 days (5 merged, 8 open)
+- Created 3 Jira stories and updated Jira 10 times
+- Biggest accomplishment: Implemented critical authentication refactor across multiple services
+```
+
+### Keep a journal of your weekly highlights
+
+```bash
+# First time: create a new Gist on GitHub and add gist_url to config
+# Then just run highlight - journaling is automatic!
+./perfdive highlight john.doe@company.com
+```
+
+Output:
+```
+- Created 13 PRs in the last 7 days (5 merged, 8 open)
+- Created 3 Jira stories and updated Jira 10 times
+- Biggest accomplishment: Implemented critical authentication refactor
+  - Why: This refactor addresses a critical security vulnerability that affected multiple services, demonstrating both technical depth and cross-functional impact.
+
+✓ Journal updated: https://gist.github.com/username/abc123
+```
+
+**Note:** With `gist_url` configured, journaling happens automatically. The "why" explanation is always included in journal entries, providing context for future reference.
 
 ### Generate a summary for a user's work in December 2024
 
