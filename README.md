@@ -10,7 +10,7 @@ A Golang CLI application for tracking and summarizing your work. Get quick weekl
 
 - **Quick Highlights**: Simple `highlight` command for instant weekly summaries with bullet points
 - **Automatic Journaling**: Maintain a running log in GitHub Gist - configure once, auto-updates forever
-- **AI-Powered Insights**: Uses Ollama to generate accomplishment summaries with "why" explanations
+- **AI-Powered Insights**: Uses Ollama to generate accomplishment summaries with "why" explanations focused on impact to Red Hat, partners, customers, and open source
 - Fetches Jira issues assigned to a specific user within a date range
 - **GitHub Integration**: Automatically detects and fetches context from GitHub URLs in Jira issues
 - **GitHub User Activity**: Optional feature to fetch user's personal GitHub activity by matching their email
@@ -213,6 +213,10 @@ This command generates a concise bullet-point list showing:
 - `--days` or `-d`: Number of days to look back (default: 7)
 - `--github-username`: Use explicit GitHub username instead of email lookup
 - `--verbose` or `-v`: Show detailed progress information
+- `--clear-cache`: Force refresh by clearing GitHub activity cache
+
+**Caching:**
+GitHub activity is automatically cached for 1 hour per date range to avoid hitting API rate limits. On subsequent runs with the same date range, cached data is used instantly. Cache is stored in `~/.perfdive/cache/`.
 
 **Automatic Journaling:**
 If you configure `github.gist_url` in your config file, highlights will automatically be appended to your GitHub Gist journal. No flag needed!
@@ -231,6 +235,9 @@ Examples:
 # Show detailed progress (useful for debugging)
 ./perfdive highlight bpalm@redhat.com --verbose
 
+# Force refresh (clear cache and fetch fresh data)
+./perfdive highlight bpalm@redhat.com --clear-cache
+
 # All commands automatically journal if gist_url is configured!
 ```
 
@@ -246,6 +253,7 @@ Date range: 7 days
 
 → Fetching Jira issues for bpalm@redhat.com...
 → Fetching GitHub activity...
+  ✓ Using cached GitHub activity (saves API rate limit)
   ✓ Found 5 Jira issues
   ✓ Found GitHub user 'bpalm' with 13 PRs, 2 issues
 
@@ -255,9 +263,11 @@ Date range: 7 days
   ✓ AI summary generated
 
   💡 Why this is the biggest accomplishment:
-     This refactor addresses a critical security vulnerability that affected multiple 
-     services, demonstrating both technical depth and cross-functional impact. The 
-     merged PRs show completed implementation across the entire authentication stack.
+     This authentication refactor is significant because it addresses critical security 
+     vulnerabilities affecting Red Hat's enterprise customers. The implementation enables 
+     Red Hat's partners to integrate more securely with their IAM solutions, reduces 
+     compliance risks for customer deployments, and aligns with industry-standard open 
+     source authentication frameworks used across the community.
 
 ============================================================
 HIGHLIGHT SUMMARY
@@ -268,7 +278,7 @@ HIGHLIGHT SUMMARY
 - Biggest accomplishment: Implemented critical authentication refactor
 ```
 
-**Note:** When using `--verbose`, the AI will explain *why* it chose that as your biggest accomplishment, providing context on the impact and significance of your work.
+**Note:** When using `--verbose`, the AI will explain *why* it chose that as your biggest accomplishment, providing context on the impact for Red Hat, its partners, customers, and the open source community.
 
 #### Journal Feature
 

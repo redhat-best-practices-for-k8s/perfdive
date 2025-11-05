@@ -36,12 +36,28 @@ func init() {
 	// Add highlight-specific flags
 	highlightCmd.Flags().IntP("days", "d", 7, "Number of days to look back (default 7)")
 	highlightCmd.Flags().BoolP("verbose", "v", false, "Show detailed progress information")
+	highlightCmd.Flags().Bool("clear-cache", false, "Clear GitHub activity cache before running")
 }
 
 func runHighlight(cmd *cobra.Command, args []string) {
 	email := args[0]
 	days, _ := cmd.Flags().GetInt("days")
 	verbose, _ := cmd.Flags().GetBool("verbose")
+	clearCache, _ := cmd.Flags().GetBool("clear-cache")
+
+	// Clear cache if requested
+	if clearCache {
+		cache, err := ghclient.NewCache()
+		if err == nil {
+			if err := cache.Clear(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to clear cache: %v\n", err)
+			} else {
+				if verbose {
+					fmt.Println("✓ Cache cleared")
+				}
+			}
+		}
+	}
 
 	// Calculate date range
 	endDate := time.Now()
@@ -171,7 +187,7 @@ func generateHighlight(email, startDate, endDate, jiraURL, jiraUsername, jiraTok
 		startDateFormatted := start.Format("2006-01-02")
 		endDateFormatted := end.Format("2006-01-02")
 
-		activity, err = githubClient.FetchComprehensiveUserActivity(username, startDateFormatted, endDateFormatted)
+		activity, err = githubClient.FetchComprehensiveUserActivityWithCache(username, startDateFormatted, endDateFormatted, verbose)
 		githubChan <- githubResult{activity: activity, username: username, err: err}
 	}()
 
@@ -319,16 +335,16 @@ func generateAccomplishmentSummary(client *ollama.Client, issues []jira.Issue, a
 	var prompt string
 	
 	// Always ask for the why, but only display it in verbose mode or journal
-	prompt = "You are analyzing work activity to identify the biggest accomplishment.\n\n"
+	prompt = "You are analyzing work activity for a Red Hat engineer to identify the biggest accomplishment.\n\n"
 	prompt += "Step 1: Review the work below and identify the single most significant accomplishment.\n"
-	prompt += "Step 2: Explain why THAT EXACT accomplishment is important. Your explanation must directly reference and explain the specific work you identified.\n\n"
+	prompt += "Step 2: Explain why THAT EXACT accomplishment matters for Red Hat, its partners, customers, and the open source community. Your explanation must directly reference and explain the specific work you identified.\n\n"
 	prompt += "Format your response EXACTLY as:\n"
 	prompt += "ACCOMPLISHMENT: [one concise sentence, max 15 words]\n"
-	prompt += "WHY: Removing [reference the exact accomplishment] is significant because [explain its specific impact]. [Add 1-2 more sentences about the concrete benefits of this specific work].\n\n"
+	prompt += "WHY: [Reference the exact accomplishment] is significant because [explain its specific impact]. Consider the impact on: Red Hat's business objectives, partner integrations, customer deployments, and/or open source community contributions. [Add 1-2 more sentences about the concrete benefits].\n\n"
 	prompt += "Example of GOOD format:\n"
 	prompt += "ACCOMPLISHMENT: Migrated authentication service to OAuth 2.0\n"
-	prompt += "WHY: Migrating the authentication service to OAuth 2.0 is significant because it addresses critical security vulnerabilities in the legacy system. This modernization enables better integration with third-party services and provides users with more secure single sign-on capabilities.\n\n"
-	prompt += "CRITICAL: Your WHY must begin by referencing the exact accomplishment you identified. Do NOT talk about different work.\n\n"
+	prompt += "WHY: Migrating the authentication service to OAuth 2.0 is significant because it addresses critical security vulnerabilities affecting Red Hat's enterprise customers. This modernization enables Red Hat's partners to integrate more easily with their IAM solutions, reduces security risks for customer deployments, and aligns with industry-standard open source authentication frameworks used across the community.\n\n"
+	prompt += "CRITICAL: Your WHY must begin by referencing the exact accomplishment you identified. Tie the impact to Red Hat's ecosystem (company, partners, customers, or open source community). Do NOT talk about different work.\n\n"
 	
 	// Add Jira context
 	if len(issues) > 0 {
