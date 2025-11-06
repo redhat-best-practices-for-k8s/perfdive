@@ -751,8 +751,24 @@ func (c *Client) isDocumentationFile(filename string) bool {
 		strings.Contains(lowerName, "changelog")
 }
 
-// FetchComprehensiveUserActivity fetches user activity from multiple sources
+// FetchComprehensiveUserActivity fetches user activity from multiple sources with caching
 func (c *Client) FetchComprehensiveUserActivity(username, startDate, endDate string) (*ComprehensiveUserActivity, error) {
+	return c.FetchComprehensiveUserActivityWithCache(username, startDate, endDate, false)
+}
+
+// FetchComprehensiveUserActivityWithCache fetches user activity with optional verbose cache logging
+func (c *Client) FetchComprehensiveUserActivityWithCache(username, startDate, endDate string, verbose bool) (*ComprehensiveUserActivity, error) {
+	// Try to get from cache first
+	cache, err := NewCache()
+	if err == nil {
+		if cachedActivity, found := cache.Get(username, startDate, endDate); found {
+			if verbose {
+				fmt.Printf("  ✓ Using cached GitHub activity (saves API rate limit)\n")
+			}
+			return cachedActivity, nil
+		}
+	}
+
 	activity := &ComprehensiveUserActivity{
 		Username: username,
 	}
@@ -779,6 +795,11 @@ func (c *Client) FetchComprehensiveUserActivity(username, startDate, endDate str
 		fmt.Printf("Warning: failed to fetch user issues: %v\n", err)
 	} else {
 		activity.Issues = c.FilterIssuesByDateRange(issues, startDate, endDate)
+	}
+
+	// Cache the results
+	if cache != nil {
+		_ = cache.Set(username, startDate, endDate, activity)
 	}
 
 	return activity, nil
