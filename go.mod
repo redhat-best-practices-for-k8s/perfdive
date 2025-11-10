@@ -1,6 +1,6 @@
 module github.com/redhat-best-practices-for-k8s/perfdive
 
-go 1.25.3
+go 1.25.4
 
 require (
 	github.com/sebrandon1/jiracrawler v0.0.13
