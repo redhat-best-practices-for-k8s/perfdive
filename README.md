@@ -13,6 +13,7 @@ A Golang CLI application for tracking and summarizing your work. Get quick weekl
 - **AI-Powered Insights**: Uses Ollama to generate accomplishment summaries with "why" explanations focused on impact to Red Hat, partners, customers, and open source
 - Fetches Jira issues assigned to a specific user within a date range
 - **GitHub Integration**: Automatically detects and fetches context from GitHub URLs in Jira issues
+- **Intelligent Caching**: 24-hour cache for PRs/Issues and 1-hour cache for user activity to minimize API calls and improve performance
 - **GitHub User Activity**: Optional feature to fetch user's personal GitHub activity by matching their email
 - Uses Ollama to generate intelligent summaries of user activity with enhanced GitHub context
 - Supports both text and JSON output formats
@@ -216,7 +217,11 @@ This command generates a concise bullet-point list showing:
 - `--clear-cache`: Force refresh by clearing GitHub activity cache
 
 **Caching:**
-GitHub activity is automatically cached for 1 hour per date range to avoid hitting API rate limits. On subsequent runs with the same date range, cached data is used instantly. Cache is stored in `~/.perfdive/cache/`.
+perfdive automatically caches GitHub data to minimize API calls:
+- **User activity**: 1-hour cache (for quick repeated highlight runs)
+- **PRs & Issues**: 24-hour cache (for analyzing Jira references)
+- Cache location: `~/.perfdive/cache/`
+- See `docs/GITHUB_ISSUES_CACHE.md` for details
 
 **Automatic Journaling:**
 If you configure `github.gist_url` in your config file, highlights will automatically be appended to your GitHub Gist journal. No flag needed!
@@ -506,12 +511,23 @@ The application consists of several key components:
    - You'll see: `⚠ GitHub auth failed, retrying without token for public repo access...`
    - This is normal behavior and usually resolves automatically
 
-4. **No Issues Found**
+4. **GitHub Rate Limit Errors (Handled Automatically)**
+   - The application now includes intelligent rate limit handling
+   - **What you'll see**: Rate limit status displayed at startup showing remaining API calls
+   - **Automatic waiting**: If rate limited, the tool waits until the limit resets
+   - **Automatic retries**: Failed requests are retried with exponential backoff (2s, 4s, 8s)
+   - **Tips to avoid rate limits**:
+     - Use `--github-token` for 83x more requests (5,000/hour vs 60/hour)
+     - Space out multiple runs by a few minutes
+     - Cache is enabled by default (1-hour TTL) to reduce API calls
+   - See `docs/GITHUB_RATE_LIMITING_FIX.md` for detailed information
+
+5. **No Issues Found**
    - Verify the user email is correct
    - Check that issues exist for the user in the specified date range
    - Ensure the date format is MM-DD-YYYY
 
-5. **GitHub User Not Found (with --github-activity)**
+6. **GitHub User Not Found (with --github-activity)**
    - Error: `no GitHub user found with email user@company.com`
    - **Cause**: User's email is private in GitHub settings or they use a different email
    - **Solutions**: 
@@ -519,7 +535,7 @@ The application consists of several key components:
      - Try with the actual email they use for GitHub commits
      - Use without `--github-activity` flag for basic functionality
 
-6. **Date Format Errors**
+7. **Date Format Errors**
    - Use MM-DD-YYYY format (e.g., 06-01-2025, not 6-1-2025)
 
 ### Debug Mode
