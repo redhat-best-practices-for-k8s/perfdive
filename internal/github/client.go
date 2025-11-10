@@ -15,11 +15,35 @@ type Client struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
+	rateLimitRemaining int
+	rateLimitReset     time.Time
 }
 
 // Config holds GitHub client configuration
 type Config struct {
 	Token string // GitHub personal access token (optional for public repos)
+}
+
+// GitHubErrorResponse represents an error response from GitHub API
+type GitHubErrorResponse struct {
+	Message          string `json:"message"`
+	DocumentationURL string `json:"documentation_url"`
+}
+
+// RateLimitResponse represents GitHub's rate limit status
+type RateLimitResponse struct {
+	Resources struct {
+		Core struct {
+			Limit     int   `json:"limit"`
+			Remaining int   `json:"remaining"`
+			Reset     int64 `json:"reset"`
+		} `json:"core"`
+		Search struct {
+			Limit     int   `json:"limit"`
+			Remaining int   `json:"remaining"`
+			Reset     int64 `json:"reset"`
+		} `json:"search"`
+	} `json:"resources"`
 }
 
 // GitHubReference represents a parsed GitHub URL
@@ -244,28 +268,73 @@ func (c *Client) FetchGitHubContextFromJiraIssues(jiraIssues []JiraIssue) (*GitH
 	return context, nil
 }
 
-// makeGitHubRequest makes an HTTP request to GitHub API with retry logic for public repos
+// makeGitHubRequest makes an HTTP request to GitHub API with retry logic for rate limits and public repos
 func (c *Client) makeGitHubRequest(url string, target interface{}) (interface{}, error) {
-	// First try with authentication if token provided
-	if c.token != "" {
-		result, err := c.doGitHubRequest(url, true, target)
+	maxRetries := 3
+	baseDelay := 2 * time.Second
+	
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Add delay for retries with exponential backoff
+		if attempt > 0 {
+			delay := baseDelay * time.Duration(1<<uint(attempt-1)) // 2s, 4s, 8s
+			fmt.Printf("  Retrying in %v (attempt %d/%d)...\n", delay, attempt+1, maxRetries)
+			time.Sleep(delay)
+		}
+
+		// First try with authentication if token provided
+		if c.token != "" {
+			result, err := c.doGitHubRequest(url, true, target)
+			if err != nil {
+				// If we get 401 (unauthorized) with a token, retry without auth for public repos
+				if isUnauthorizedError(err) {
+					fmt.Printf("⚠ GitHub auth failed, retrying without token for public repo access...\n")
+					return c.doGitHubRequest(url, false, target)
+				}
+				
+				// Check if it's a rate limit error - retry if not last attempt
+				if isRateLimitError(err) && attempt < maxRetries-1 {
+					fmt.Printf("⚠ %v\n", err)
+					continue
+				}
+				
+				// Check if it's a secondary rate limit (abuse detection) - longer wait
+				if isSecondaryRateLimitError(err) && attempt < maxRetries-1 {
+					fmt.Printf("⚠ %v\n", err)
+					fmt.Printf("  Waiting 60s for secondary rate limit reset...\n")
+					time.Sleep(60 * time.Second)
+					continue
+				}
+				
+				return nil, err
+			}
+			return result, nil
+		}
+
+		// No token provided, try without auth
+		result, err := c.doGitHubRequest(url, false, target)
 		if err != nil {
-			// If we get 401 (unauthorized) with a token, retry without auth for public repos
-			if isUnauthorizedError(err) {
-				fmt.Printf("⚠ GitHub auth failed, retrying without token for public repo access...\n")
-				return c.doGitHubRequest(url, false, target)
+			// Retry on rate limit errors
+			if (isRateLimitError(err) || isSecondaryRateLimitError(err)) && attempt < maxRetries-1 {
+				fmt.Printf("⚠ %v\n", err)
+				continue
 			}
 			return nil, err
 		}
 		return result, nil
 	}
-
-	// No token provided, try without auth
-	return c.doGitHubRequest(url, false, target)
+	
+	return nil, fmt.Errorf("GitHub API request failed after %d retries", maxRetries)
 }
 
-// doGitHubRequest performs the actual HTTP request
+// doGitHubRequest performs the actual HTTP request with rate limit handling
 func (c *Client) doGitHubRequest(url string, useAuth bool, target interface{}) (interface{}, error) {
+	// Check if we need to wait for rate limit reset
+	if !c.rateLimitReset.IsZero() && c.rateLimitRemaining <= 1 && time.Now().Before(c.rateLimitReset) {
+		waitTime := time.Until(c.rateLimitReset)
+		fmt.Printf("⚠ Rate limit exceeded. Waiting %v until reset...\n", waitTime.Round(time.Second))
+		time.Sleep(waitTime + time.Second) // Add 1 second buffer
+	}
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -282,8 +351,11 @@ func (c *Client) doGitHubRequest(url string, useAuth bool, target interface{}) (
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// Update rate limit information from headers
+	c.updateRateLimitFromHeaders(resp)
+
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+		return nil, c.handleErrorResponse(resp)
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
@@ -293,9 +365,67 @@ func (c *Client) doGitHubRequest(url string, useAuth bool, target interface{}) (
 	return target, nil
 }
 
+// updateRateLimitFromHeaders updates the client's rate limit state from response headers
+func (c *Client) updateRateLimitFromHeaders(resp *http.Response) {
+	if remaining := resp.Header.Get("X-RateLimit-Remaining"); remaining != "" {
+		var remainingVal int
+		if _, err := fmt.Sscanf(remaining, "%d", &remainingVal); err == nil {
+			c.rateLimitRemaining = remainingVal
+		}
+	}
+	
+	if reset := resp.Header.Get("X-RateLimit-Reset"); reset != "" {
+		var resetTimestamp int64
+		if _, err := fmt.Sscanf(reset, "%d", &resetTimestamp); err == nil {
+			c.rateLimitReset = time.Unix(resetTimestamp, 0)
+		}
+	}
+}
+
+// handleErrorResponse parses GitHub error responses and returns a detailed error
+func (c *Client) handleErrorResponse(resp *http.Response) error {
+	var errorResp GitHubErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&errorResp); err == nil && errorResp.Message != "" {
+		// Check for specific error types
+		if resp.StatusCode == 403 {
+			// Could be rate limit or authentication issue
+			if strings.Contains(strings.ToLower(errorResp.Message), "rate limit") ||
+			   strings.Contains(strings.ToLower(errorResp.Message), "api rate limit") {
+				return fmt.Errorf("GitHub API rate limit exceeded: %s", errorResp.Message)
+			}
+			if strings.Contains(strings.ToLower(errorResp.Message), "abuse") {
+				return fmt.Errorf("GitHub API abuse detection triggered (secondary rate limit): %s", errorResp.Message)
+			}
+			return fmt.Errorf("GitHub API access forbidden: %s", errorResp.Message)
+		}
+		return fmt.Errorf("GitHub API returned status %d: %s", resp.StatusCode, errorResp.Message)
+	}
+
+	// Fallback to generic error if we can't parse the response
+	return fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+}
+
 // isUnauthorizedError checks if an error is a 401 unauthorized error
 func isUnauthorizedError(err error) bool {
-	return err != nil && err.Error() == "GitHub API returned status 401"
+	return err != nil && strings.Contains(err.Error(), "GitHub API returned status 401")
+}
+
+// isRateLimitError checks if an error is a rate limit error
+func isRateLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "rate limit exceeded") || 
+	       strings.Contains(errMsg, "api rate limit")
+}
+
+// isSecondaryRateLimitError checks if an error is a secondary rate limit (abuse detection) error
+func isSecondaryRateLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "abuse detection")
 }
 
 // fetchPullRequest retrieves PR details from GitHub API
@@ -340,18 +470,50 @@ func (c *Client) deduplicateReferences(refs []GitHubReference) []GitHubReference
 	return unique
 }
 
-// TestConnection tests GitHub API connectivity
+// TestConnection tests GitHub API connectivity and displays rate limit status
 func (c *Client) TestConnection() error {
-	url := c.baseURL + "/rate_limit"
-
-	// For rate limit endpoint, we can use a simple map
-	var result map[string]interface{}
-	_, err := c.makeGitHubRequest(url, &result)
+	rateLimit, err := c.GetRateLimitStatus()
 	if err != nil {
 		return fmt.Errorf("failed to connect to GitHub API: %w", err)
 	}
 
+	// Display rate limit information
+	if c.token != "" {
+		fmt.Printf("✓ GitHub API connection OK (authenticated)\n")
+		fmt.Printf("  Core API: %d/%d remaining (resets at %s)\n", 
+			rateLimit.Resources.Core.Remaining, 
+			rateLimit.Resources.Core.Limit,
+			time.Unix(rateLimit.Resources.Core.Reset, 0).Format("15:04:05"))
+		fmt.Printf("  Search API: %d/%d remaining (resets at %s)\n", 
+			rateLimit.Resources.Search.Remaining, 
+			rateLimit.Resources.Search.Limit,
+			time.Unix(rateLimit.Resources.Search.Reset, 0).Format("15:04:05"))
+	} else {
+		fmt.Printf("✓ GitHub API connection OK (unauthenticated - limited to 60 requests/hour)\n")
+	}
+
+	// Warn if rate limits are low
+	if rateLimit.Resources.Core.Remaining < 10 {
+		fmt.Printf("⚠ Warning: Core API rate limit is low (%d remaining)\n", rateLimit.Resources.Core.Remaining)
+	}
+	if rateLimit.Resources.Search.Remaining < 5 {
+		fmt.Printf("⚠ Warning: Search API rate limit is low (%d remaining)\n", rateLimit.Resources.Search.Remaining)
+	}
+
 	return nil
+}
+
+// GetRateLimitStatus retrieves the current rate limit status from GitHub
+func (c *Client) GetRateLimitStatus() (*RateLimitResponse, error) {
+	url := c.baseURL + "/rate_limit"
+
+	var rateLimit RateLimitResponse
+	_, err := c.makeGitHubRequest(url, &rateLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rateLimit, nil
 }
 
 // SearchUserByEmail searches for a GitHub user by email address
@@ -548,6 +710,14 @@ func (c *Client) FetchUserGitHubActivity(email, startDate, endDate string) ([]Us
 
 // fetchEnhancedPullRequest retrieves detailed PR information including reviews, files, and diffs
 func (c *Client) fetchEnhancedPullRequest(owner, repo, number string) (*PullRequest, error) {
+	// Try to get from cache first (24-hour TTL)
+	cache, err := NewCache()
+	if err == nil {
+		if cachedPR, found := cache.GetPR(owner, repo, number); found {
+			return cachedPR, nil
+		}
+	}
+
 	// First fetch basic PR information
 	basicPR, err := c.fetchPullRequest(owner, repo, number)
 	if err != nil {
@@ -581,11 +751,24 @@ func (c *Client) fetchEnhancedPullRequest(owner, repo, number string) (*PullRequ
 		enhancedPR.CodeDiff = diff
 	}
 
+	// Cache the enhanced PR (24-hour TTL)
+	if cache != nil {
+		_ = cache.SetPR(owner, repo, number, &enhancedPR)
+	}
+
 	return &enhancedPR, nil
 }
 
 // fetchEnhancedIssue retrieves detailed issue information including comments
 func (c *Client) fetchEnhancedIssue(owner, repo, number string) (*Issue, error) {
+	// Try to get from cache first (24-hour TTL)
+	cache, err := NewCache()
+	if err == nil {
+		if cachedIssue, found := cache.GetIssue(owner, repo, number); found {
+			return cachedIssue, nil
+		}
+	}
+
 	// First fetch basic issue information
 	basicIssue, err := c.fetchIssue(owner, repo, number)
 	if err != nil {
@@ -601,6 +784,11 @@ func (c *Client) fetchEnhancedIssue(owner, repo, number string) (*Issue, error) 
 		fmt.Printf("Warning: failed to fetch comments for issue %s/%s#%s: %v\n", owner, repo, number, err)
 	} else {
 		enhancedIssue.Comments = comments
+	}
+
+	// Cache the enhanced issue (24-hour TTL)
+	if cache != nil {
+		_ = cache.SetIssue(owner, repo, number, &enhancedIssue)
 	}
 
 	return &enhancedIssue, nil
