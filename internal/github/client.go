@@ -77,16 +77,17 @@ type PullRequest struct {
 
 // Issue represents GitHub issue information
 type Issue struct {
-	Number    int            `json:"number"`
-	Title     string         `json:"title"`
-	Body      string         `json:"body"`
-	State     string         `json:"state"`
-	User      User           `json:"user"`
-	Labels    []Label        `json:"labels"`
-	CreatedAt string         `json:"created_at"`
-	UpdatedAt string         `json:"updated_at"`
-	ClosedAt  string         `json:"closed_at"`
-	Comments  []IssueComment `json:"comments,omitempty"`
+	Number        int            `json:"number"`
+	Title         string         `json:"title"`
+	Body          string         `json:"body"`
+	State         string         `json:"state"`
+	User          User           `json:"user"`
+	Labels        []Label        `json:"labels"`
+	CreatedAt     string         `json:"created_at"`
+	UpdatedAt     string         `json:"updated_at"`
+	ClosedAt      string         `json:"closed_at"`
+	CommentsCount int            `json:"comments"`           // Number of comments from basic API
+	Comments      []IssueComment `json:"-"`                  // Populated separately if enhanced context is enabled
 }
 
 // User represents a GitHub user

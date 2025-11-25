@@ -23,6 +23,7 @@ Default to the last 7 days if no date range is specified.
 Example:
   perfdive highlight bpalm@redhat.com
   perfdive highlight bpalm@redhat.com --days 14
+  perfdive highlight bpalm@redhat.com --list 5
   perfdive highlight --github-username sebrandon1 bpalm@redhat.com
 
 Note: If github.gist_url is configured, highlights will be automatically appended to your journal.`,
@@ -37,6 +38,7 @@ func init() {
 	highlightCmd.Flags().IntP("days", "d", 7, "Number of days to look back (default 7)")
 	highlightCmd.Flags().BoolP("verbose", "v", false, "Show detailed progress information")
 	highlightCmd.Flags().Bool("clear-cache", false, "Clear GitHub activity cache before running")
+	highlightCmd.Flags().IntP("list", "l", 0, "List top N accomplishments instead of just the biggest (e.g., --list 5)")
 }
 
 func runHighlight(cmd *cobra.Command, args []string) {
@@ -44,6 +46,7 @@ func runHighlight(cmd *cobra.Command, args []string) {
 	days, _ := cmd.Flags().GetInt("days")
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	clearCache, _ := cmd.Flags().GetBool("clear-cache")
+	listCount, _ := cmd.Flags().GetInt("list")
 
 	// Clear cache if requested
 	if clearCache {
@@ -87,14 +90,14 @@ func runHighlight(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	err := generateHighlight(email, startDateStr, endDateStr, jiraURL, jiraUsername, jiraToken, ollamaURL, githubToken, githubUsername, gistURL, verbose)
+	err := generateHighlight(email, startDateStr, endDateStr, jiraURL, jiraUsername, jiraToken, ollamaURL, githubToken, githubUsername, gistURL, verbose, listCount)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func generateHighlight(email, startDate, endDate, jiraURL, jiraUsername, jiraToken, ollamaURL, githubToken, githubUsername, gistURL string, verbose bool) error {
+func generateHighlight(email, startDate, endDate, jiraURL, jiraUsername, jiraToken, ollamaURL, githubToken, githubUsername, gistURL string, verbose bool, listCount int) error {
 	// Calculate days for output
 	start, _ := time.Parse("01-02-2006", startDate)
 	end, _ := time.Parse("01-02-2006", endDate)
@@ -271,7 +274,7 @@ func generateHighlight(email, startDate, endDate, jiraURL, jiraUsername, jiraTok
 		output.WriteString("- Created 0 Jira stories and updated Jira 0 times\n")
 	}
 
-	// AI-generated biggest accomplishment
+	// AI-generated accomplishment(s)
 	if ollamaURL != "" {
 		model := "llama3.2:latest"
 		if verbose {
@@ -281,28 +284,48 @@ func generateHighlight(email, startDate, endDate, jiraURL, jiraUsername, jiraTok
 		}
 		ollamaClient := ollama.NewClient(ollama.Config{URL: ollamaURL})
 		
-		accomplishment, why, err := generateAccomplishmentSummary(ollamaClient, jiraRes.issues, githubRes.activity, email, verbose, model)
-		if err == nil {
-			if verbose {
-				fmt.Println("  ✓ AI summary generated")
-				if why != "" {
-					fmt.Printf("\n  💡 Why this is the biggest accomplishment:\n")
-					fmt.Printf("     %s\n", why)
+		if listCount > 0 {
+			// Generate list of top N accomplishments
+			accomplishments, err := generateAccomplishmentsList(ollamaClient, jiraRes.issues, githubRes.activity, email, verbose, model, listCount)
+			if err == nil {
+				if verbose {
+					fmt.Printf("  ✓ AI summary generated (top %d accomplishments)\n", listCount)
 				}
-			}
-			line := fmt.Sprintf("- Biggest accomplishment: %s\n", accomplishment)
-			output.WriteString(line)
-			
-			// Add the why to journal entries (when gist_url is configured)
-			if gistURL != "" && why != "" {
-				output.WriteString(fmt.Sprintf("  - Why: %s\n", why))
+				output.WriteString(fmt.Sprintf("- Top %d accomplishments:\n", listCount))
+				for i, acc := range accomplishments {
+					output.WriteString(fmt.Sprintf("  %d. %s\n", i+1, acc))
+				}
+			} else {
+				if verbose {
+					fmt.Printf("  ✗ Failed to generate AI summary: %v\n", err)
+				}
+				output.WriteString(fmt.Sprintf("- Top %d accomplishments: (Unable to generate: %v)\n", listCount, err))
 			}
 		} else {
-			if verbose {
-				fmt.Printf("  ✗ Failed to generate AI summary: %v\n", err)
+			// Generate single biggest accomplishment
+			accomplishment, why, err := generateAccomplishmentSummary(ollamaClient, jiraRes.issues, githubRes.activity, email, verbose, model)
+			if err == nil {
+				if verbose {
+					fmt.Println("  ✓ AI summary generated")
+					if why != "" {
+						fmt.Printf("\n  💡 Why this is the biggest accomplishment:\n")
+						fmt.Printf("     %s\n", why)
+					}
+				}
+				line := fmt.Sprintf("- Biggest accomplishment: %s\n", accomplishment)
+				output.WriteString(line)
+				
+				// Add the why to journal entries (when gist_url is configured)
+				if gistURL != "" && why != "" {
+					output.WriteString(fmt.Sprintf("  - Why: %s\n", why))
+				}
+			} else {
+				if verbose {
+					fmt.Printf("  ✗ Failed to generate AI summary: %v\n", err)
+				}
+				line := fmt.Sprintf("- Biggest accomplishment: (Unable to generate: %v)\n", err)
+				output.WriteString(line)
 			}
-			line := fmt.Sprintf("- Biggest accomplishment: (Unable to generate: %v)\n", err)
-			output.WriteString(line)
 		}
 	}
 	
@@ -379,6 +402,108 @@ func generateAccomplishmentSummary(client *ollama.Client, issues []jira.Issue, a
 	// Parse out the accomplishment and why
 	accomplishment, why := parseAccomplishmentResponse(response)
 	return accomplishment, why, nil
+}
+
+func generateAccomplishmentsList(client *ollama.Client, issues []jira.Issue, activity *ghclient.ComprehensiveUserActivity, email string, verbose bool, model string, count int) ([]string, error) {
+	var prompt string
+	
+	prompt = fmt.Sprintf("You are analyzing work activity for a Red Hat engineer to identify the top %d accomplishments.\n\n", count)
+	prompt += fmt.Sprintf("Review the work below and list the %d most significant accomplishments in priority order (most important first).\n\n", count)
+	prompt += "Format your response as a numbered list with concise descriptions (max 15 words each):\n"
+	prompt += "1. [first accomplishment]\n"
+	prompt += "2. [second accomplishment]\n"
+	prompt += fmt.Sprintf("%d. [last accomplishment]\n\n", count)
+	prompt += "Focus on technical achievements, feature implementations, bug fixes, and contributions that have measurable impact.\n\n"
+	
+	// Add Jira context
+	if len(issues) > 0 {
+		prompt += "JIRA WORK:\n"
+		for i, issue := range issues {
+			if i >= 10 {
+				break // Limit to top 10
+			}
+			prompt += fmt.Sprintf("- %s: %s [%s]\n", issue.Key, issue.Summary, issue.Status.Name)
+		}
+		prompt += "\n"
+	}
+	
+	// Add GitHub context
+	if activity != nil && len(activity.PullRequests) > 0 {
+		prompt += "GITHUB WORK:\n"
+		for i, pr := range activity.PullRequests {
+			if i >= 10 {
+				break // Limit to top 10
+			}
+			prompt += fmt.Sprintf("- PR: %s [%s]\n", pr.Title, pr.State)
+		}
+		prompt += "\n"
+	}
+	
+	// Use the exported CallOllama method
+	response, err := client.CallOllama(model, prompt)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Parse the numbered list
+	accomplishments := parseAccomplishmentsList(response, count)
+	return accomplishments, nil
+}
+
+func parseAccomplishmentsList(response string, expectedCount int) []string {
+	lines := strings.Split(response, "\n")
+	accomplishments := []string{}
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		// Look for numbered lines: "1. ", "2. ", etc.
+		// Also handle variations like "1) " or "1 - "
+		if len(line) > 3 {
+			// Check if line starts with a number followed by period, paren, or dash
+			if (line[0] >= '0' && line[0] <= '9') {
+				if line[1] == '.' || line[1] == ')' || (line[1] == ' ' && line[2] == '-') {
+					// Extract the accomplishment text after the number
+					text := ""
+					switch line[1] {
+					case '.', ')':
+						text = strings.TrimSpace(line[2:])
+					case ' ':
+						text = strings.TrimSpace(line[3:])
+					}
+					
+					if text != "" {
+						accomplishments = append(accomplishments, text)
+					}
+				}
+			}
+		}
+	}
+	
+	// If we didn't find enough numbered items, try to split by lines
+	if len(accomplishments) < expectedCount {
+		accomplishments = []string{}
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(strings.ToLower(line), "here are") && 
+			   !strings.HasPrefix(strings.ToLower(line), "the top") {
+				accomplishments = append(accomplishments, line)
+				if len(accomplishments) >= expectedCount {
+					break
+				}
+			}
+		}
+	}
+	
+	// Limit to expected count
+	if len(accomplishments) > expectedCount {
+		accomplishments = accomplishments[:expectedCount]
+	}
+	
+	return accomplishments
 }
 
 func parseAccomplishmentResponse(response string) (accomplishment string, why string) {
