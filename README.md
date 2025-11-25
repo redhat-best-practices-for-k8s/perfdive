@@ -212,16 +212,18 @@ This command generates a concise bullet-point list showing:
 
 **Options:**
 - `--days` or `-d`: Number of days to look back (default: 7)
+- `--list` or `-l`: List top N accomplishments instead of just the biggest (e.g., `--list 5`)
 - `--github-username`: Use explicit GitHub username instead of email lookup
 - `--verbose` or `-v`: Show detailed progress information
 - `--clear-cache`: Force refresh by clearing GitHub activity cache
 
 **Caching:**
-perfdive automatically caches GitHub data to minimize API calls:
-- **User activity**: 1-hour cache (for quick repeated highlight runs)
-- **PRs & Issues**: 24-hour cache (for analyzing Jira references)
+perfdive automatically caches data to minimize API calls and avoid rate limits:
+- **Jira issues**: 24-hour cache (eliminates rate limit errors on repeat runs)
+- **GitHub PRs & Issues**: 24-hour cache (for analyzing Jira references)
+- **GitHub user activity**: 1-hour cache (for quick repeated highlight runs)
 - Cache location: `~/.perfdive/cache/`
-- See `docs/GITHUB_ISSUES_CACHE.md` for details
+- See `docs/JIRA_ISSUES_CACHE.md` and `docs/GITHUB_ISSUES_CACHE.md` for details
 
 **Automatic Journaling:**
 If you configure `github.gist_url` in your config file, highlights will automatically be appended to your GitHub Gist journal. No flag needed!
@@ -242,6 +244,9 @@ Examples:
 
 # Force refresh (clear cache and fetch fresh data)
 ./perfdive highlight bpalm@redhat.com --clear-cache
+
+# List top 5 accomplishments instead of just the biggest
+./perfdive highlight bpalm@redhat.com --list 5
 
 # All commands automatically journal if gist_url is configured!
 ```
@@ -284,6 +289,24 @@ HIGHLIGHT SUMMARY
 ```
 
 **Note:** When using `--verbose`, the AI will explain *why* it chose that as your biggest accomplishment, providing context on the impact for Red Hat, its partners, customers, and the open source community.
+
+**Using --list for Multiple Accomplishments:**
+
+```bash
+./perfdive highlight bpalm@redhat.com --list 5
+```
+
+**Example Output:**
+```
+- Created 13 PRs in the last 7 days (5 merged, 8 open)
+- Created 3 Jira stories and updated Jira 10 times
+- Top 5 accomplishments:
+  1. Implemented GitHub caching system reducing API calls by 97%
+  2. Added comprehensive rate limit handling for Jira and GitHub APIs
+  3. Fixed critical authentication bug affecting multiple services
+  4. Enhanced observability with detailed logging and cache statistics
+  5. Improved documentation with complete caching guides
+```
 
 #### Journal Feature
 

@@ -46,8 +46,7 @@ func (c *Client) GetUserIssuesInDateRange(email, startDate, endDate string) ([]I
 	return c.GetUserIssuesInDateRangeWithContext(email, startDate, endDate, false, false)
 }
 
-// GetUserIssuesInDateRangeWithContext retrieves issues with optional enhanced context
-// This is now a simple wrapper around jiracrawler's enhanced function
+// GetUserIssuesInDateRangeWithContext retrieves issues with optional enhanced context and caching
 func (c *Client) GetUserIssuesInDateRangeWithContext(email, startDate, endDate string, enhancedContext, verbose bool) ([]Issue, error) {
 	// Convert date format from MM-DD-YYYY to YYYY-MM-DD
 	start, err := time.Parse("01-02-2006", startDate)
@@ -64,6 +63,9 @@ func (c *Client) GetUserIssuesInDateRangeWithContext(email, startDate, endDate s
 	startDateFormatted := start.Format("2006-01-02")
 	endDateFormatted := end.Format("2006-01-02")
 
+	// Initialize cache
+	cache, cacheErr := NewCache()
+	
 	// Use jiracrawler's enhanced function
 	result := lib.FetchUserIssuesInDateRangeWithContext(
 		c.config.URL,
@@ -78,6 +80,31 @@ func (c *Client) GetUserIssuesInDateRangeWithContext(email, startDate, endDate s
 
 	if result == nil {
 		return nil, fmt.Errorf("failed to fetch issues from Jira")
+	}
+
+	// If cache is available, try to use cached versions of issues
+	if cacheErr == nil && cache != nil {
+		cachedCount := 0
+		freshCount := 0
+		
+		for i := range result.Issues {
+			issue := &result.Issues[i]
+			
+			// Check if we have a cached version
+			if cachedIssue, found := cache.GetIssue(issue.Key); found {
+				// Use cached version (it has full enhanced context if it was cached with it)
+				result.Issues[i] = *cachedIssue
+				cachedCount++
+			} else {
+				// Cache the newly fetched issue
+				_ = cache.SetIssue(issue)
+				freshCount++
+			}
+		}
+		
+		if verbose && (cachedCount > 0 || freshCount > 0) {
+			fmt.Printf("  ✓ Jira cache: %d cached, %d fresh (saves API calls)\n", cachedCount, freshCount)
+		}
 	}
 
 	return result.Issues, nil
