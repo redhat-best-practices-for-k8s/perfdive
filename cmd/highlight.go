@@ -24,7 +24,6 @@ Example:
   perfdive highlight bpalm@redhat.com
   perfdive highlight bpalm@redhat.com --days 14
   perfdive highlight bpalm@redhat.com --list 5
-  perfdive highlight --github-username sebrandon1 bpalm@redhat.com
 
 Note: If github.gist_url is configured, highlights will be automatically appended to your journal.`,
 	Args: cobra.ExactArgs(1),
