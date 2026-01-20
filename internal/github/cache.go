@@ -421,3 +421,40 @@ func (c *Cache) GetCacheStats() map[string]int {
 	return stats
 }
 
+// DetailedCacheStats holds detailed cache statistics
+type DetailedCacheStats struct {
+	OldestEntry  time.Time
+	NewestEntry  time.Time
+	ExpiredCount int
+}
+
+// GetDetailedStats returns detailed cache statistics
+func (c *Cache) GetDetailedStats() *DetailedCacheStats {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if len(c.metadata.Entries) == 0 {
+		return nil
+	}
+
+	stats := &DetailedCacheStats{}
+	now := time.Now()
+
+	for _, entry := range c.metadata.Entries {
+		// Track oldest and newest
+		if stats.OldestEntry.IsZero() || entry.Created.Before(stats.OldestEntry) {
+			stats.OldestEntry = entry.Created
+		}
+		if stats.NewestEntry.IsZero() || entry.Created.After(stats.NewestEntry) {
+			stats.NewestEntry = entry.Created
+		}
+
+		// Count expired entries
+		if now.After(entry.Expires) {
+			stats.ExpiredCount++
+		}
+	}
+
+	return stats
+}
+

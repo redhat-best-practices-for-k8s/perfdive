@@ -11,6 +11,7 @@ import (
 
 	"github.com/sebrandon1/jiracrawler/lib"
 
+	"github.com/redhat-best-practices-for-k8s/perfdive/internal/dateparse"
 	ghclient "github.com/redhat-best-practices-for-k8s/perfdive/internal/github"
 	"github.com/redhat-best-practices-for-k8s/perfdive/internal/jira"
 	"github.com/redhat-best-practices-for-k8s/perfdive/internal/ollama"
@@ -30,8 +31,15 @@ GitHub PR diffs, reviews, and detailed file analysis.
 
 Model defaults to llama3.2:latest if not specified.
 
+Supported date formats:
+  - MM-DD-YYYY (e.g., 01-15-2025)
+  - YYYY-MM-DD (e.g., 2025-01-15)
+  - Relative: "today", "yesterday", "last monday", "2 weeks ago"
+
 Example:
   perfdive bpalm@redhat.com 06-01-2025 06-31-2025
+  perfdive bpalm@redhat.com 2025-06-01 2025-06-31
+  perfdive bpalm@redhat.com "2 weeks ago" today
   perfdive bpalm@redhat.com 06-01-2025 06-31-2025 llama3.2:latest
   perfdive --github-username sebrandon1 bpalm@redhat.com 06-01-2025 06-31-2025
   perfdive --github-activity bpalm@redhat.com 06-01-2025 06-31-2025
@@ -59,7 +67,8 @@ func init() {
 	rootCmd.Flags().StringP("jira-username", "u", "", "Jira username")
 	rootCmd.Flags().StringP("jira-token", "t", "", "Jira API token")
 	rootCmd.Flags().StringP("ollama-url", "o", "http://localhost:11434", "Ollama API URL")
-	rootCmd.Flags().StringP("output", "f", "text", "Output format (text or json)")
+	rootCmd.Flags().StringP("ollama-model", "m", "llama3.2:latest", "Ollama model to use")
+	rootCmd.Flags().StringP("output", "f", "text", "Output format (text, json, markdown, html, csv)")
 	rootCmd.Flags().StringP("github-token", "g", "", "GitHub API token (optional, for private repos)")
 	rootCmd.Flags().StringP("github-username", "", "", "Explicit GitHub username (overrides email-based search)")
 	rootCmd.Flags().BoolP("github-activity", "a", false, "Fetch user's GitHub activity via email search (auto-enabled if --github-username provided)")
@@ -71,6 +80,7 @@ func init() {
 	_ = viper.BindPFlag("jira.username", rootCmd.Flags().Lookup("jira-username"))
 	_ = viper.BindPFlag("jira.token", rootCmd.Flags().Lookup("jira-token"))
 	_ = viper.BindPFlag("ollama.url", rootCmd.Flags().Lookup("ollama-url"))
+	_ = viper.BindPFlag("ollama.model", rootCmd.Flags().Lookup("ollama-model"))
 	_ = viper.BindPFlag("output.format", rootCmd.Flags().Lookup("output"))
 	_ = viper.BindPFlag("github.token", rootCmd.Flags().Lookup("github-token"))
 	_ = viper.BindPFlag("github.username", rootCmd.Flags().Lookup("github-username"))
@@ -78,6 +88,15 @@ func init() {
 	_ = viper.BindPFlag("github.gist_url", rootCmd.Flags().Lookup("github-gist-url"))
 	_ = viper.BindPFlag("verbose", rootCmd.Flags().Lookup("verbose"))
 	_ = viper.BindPFlag("rate_limit_delay", rootCmd.Flags().Lookup("rate-limit-delay"))
+
+	// Set defaults for configurable values
+	viper.SetDefault("cache.activity_ttl_hours", 1)
+	viper.SetDefault("cache.issue_ttl_hours", 24)
+	viper.SetDefault("api.review_comments_limit", 20)
+	viper.SetDefault("api.issue_comments_limit", 10)
+	viper.SetDefault("api.diff_size_limit", 5000)
+	viper.SetDefault("api.patch_size_limit", 2000)
+	viper.SetDefault("ollama.model", "llama3.2:latest")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -106,17 +125,50 @@ func initConfig() {
 
 func runPerfdive(cmd *cobra.Command, args []string) {
 	email := args[0]
-	startDate := args[1]
-	endDate := args[2]
+	startDateArg := args[1]
+	endDateArg := args[2]
 
-	// Model is optional, default to llama3.2:latest
-	model := "llama3.2:latest"
+	// Input validation: email format
+	if !strings.Contains(email, "@") {
+		fmt.Fprintf(os.Stderr, "Error: invalid email format '%s'\n", email)
+		os.Exit(1)
+	}
+
+	// Parse start date with flexible format support
+	startTime, err := dateparse.ParseDateOrRelative(startDateArg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing start date: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Parse end date with flexible format support
+	endTime, err := dateparse.ParseDateOrRelative(endDateArg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing end date: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Validate date range
+	if err := dateparse.ValidateDateRange(startTime, endTime); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Format dates for internal use
+	startDate := dateparse.FormatForAPI(startTime)
+	endDate := dateparse.FormatForAPI(endTime)
+
+	// Model is optional, use config default or llama3.2:latest
+	model := viper.GetString("ollama.model")
+	if model == "" {
+		model = "llama3.2:latest"
+	}
 	if len(args) >= 4 {
 		model = args[3]
 	}
 
 	fmt.Printf("Processing Jira issues for %s from %s to %s using model %s\n",
-		email, startDate, endDate, model)
+		email, dateparse.FormatForDisplay(startTime), dateparse.FormatForDisplay(endTime), model)
 
 	// Get configuration values
 	jiraURL := viper.GetString("jira.url")
@@ -144,8 +196,7 @@ func runPerfdive(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	err := processUserActivity(email, startDate, endDate, model, jiraURL, jiraUsername, jiraToken, ollamaURL, outputFormat, githubToken, githubUsername, fetchGitHubActivity, verbose, rateLimitDelay)
-	if err != nil {
+	if err = processUserActivity(email, startDate, endDate, model, jiraURL, jiraUsername, jiraToken, ollamaURL, outputFormat, githubToken, githubUsername, fetchGitHubActivity, verbose, rateLimitDelay); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

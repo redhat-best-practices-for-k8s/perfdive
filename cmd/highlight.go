@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/redhat-best-practices-for-k8s/perfdive/internal/dateparse"
 	ghclient "github.com/redhat-best-practices-for-k8s/perfdive/internal/github"
 	"github.com/redhat-best-practices-for-k8s/perfdive/internal/jira"
 	"github.com/redhat-best-practices-for-k8s/perfdive/internal/ollama"
@@ -23,7 +24,23 @@ Default to the last 7 days if no date range is specified.
 Example:
   perfdive highlight bpalm@redhat.com
   perfdive highlight bpalm@redhat.com --days 14
+  perfdive highlight bpalm@redhat.com --since "last monday"
+  perfdive highlight bpalm@redhat.com --since "2 weeks ago"
+  perfdive highlight bpalm@redhat.com --period this-month
+  perfdive highlight bpalm@redhat.com --period q4-2024
   perfdive highlight bpalm@redhat.com --list 5
+
+Supported date formats for --since:
+  - MM-DD-YYYY (e.g., 01-15-2025)
+  - YYYY-MM-DD (e.g., 2025-01-15)
+  - Relative: "today", "yesterday", "last monday", "2 weeks ago"
+
+Supported periods for --period:
+  - this-week, last-week
+  - this-month, last-month
+  - this-quarter, last-quarter
+  - this-year, last-year
+  - q1-2024, q2-2024, q3-2024, q4-2024 (quarterly by year)
 
 Note: If github.gist_url is configured, highlights will be automatically appended to your journal.`,
 	Args: cobra.ExactArgs(1),
@@ -32,9 +49,11 @@ Note: If github.gist_url is configured, highlights will be automatically appende
 
 func init() {
 	rootCmd.AddCommand(highlightCmd)
-	
+
 	// Add highlight-specific flags
 	highlightCmd.Flags().IntP("days", "d", 7, "Number of days to look back (default 7)")
+	highlightCmd.Flags().String("since", "", "Start date (supports MM-DD-YYYY, YYYY-MM-DD, or relative like 'last monday', '2 weeks ago')")
+	highlightCmd.Flags().String("period", "", "Named period (this-week, last-month, this-quarter, q4-2024, etc.)")
 	highlightCmd.Flags().BoolP("verbose", "v", false, "Show detailed progress information")
 	highlightCmd.Flags().Bool("clear-cache", false, "Clear GitHub activity cache before running")
 	highlightCmd.Flags().IntP("list", "l", 0, "List top N accomplishments instead of just the biggest (e.g., --list 5)")
@@ -43,9 +62,29 @@ func init() {
 func runHighlight(cmd *cobra.Command, args []string) {
 	email := args[0]
 	days, _ := cmd.Flags().GetInt("days")
+	since, _ := cmd.Flags().GetString("since")
+	period, _ := cmd.Flags().GetString("period")
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	clearCache, _ := cmd.Flags().GetBool("clear-cache")
 	listCount, _ := cmd.Flags().GetInt("list")
+
+	// Input validation: email format
+	if !strings.Contains(email, "@") {
+		fmt.Fprintf(os.Stderr, "Error: invalid email format '%s'\n", email)
+		os.Exit(1)
+	}
+
+	// Input validation: days must be positive
+	if days <= 0 {
+		fmt.Fprintf(os.Stderr, "Error: --days must be a positive number\n")
+		os.Exit(1)
+	}
+
+	// Input validation: list count must be non-negative
+	if listCount < 0 {
+		fmt.Fprintf(os.Stderr, "Error: --list must be a non-negative number\n")
+		os.Exit(1)
+	}
 
 	// Clear cache if requested
 	if clearCache {
@@ -61,12 +100,48 @@ func runHighlight(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	// Calculate date range
-	endDate := time.Now()
-	startDate := endDate.AddDate(0, 0, -days)
-	
-	startDateStr := startDate.Format("01-02-2006")
-	endDateStr := endDate.Format("01-02-2006")
+	// Calculate date range based on flags
+	var startDate, endDate time.Time
+
+	if period != "" {
+		// Use named period
+		var err error
+		startDate, endDate, err = dateparse.ParseNamedPeriod(period)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if verbose {
+			fmt.Printf("Using period '%s': %s to %s\n", period,
+				dateparse.FormatForDisplay(startDate),
+				dateparse.FormatForDisplay(endDate))
+		}
+	} else if since != "" {
+		// Use --since flag with flexible parsing
+		var err error
+		startDate, err = dateparse.ParseDateOrRelative(since)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		endDate = time.Now()
+		if verbose {
+			fmt.Printf("Date range: %s to today\n", dateparse.FormatForDisplay(startDate))
+		}
+	} else {
+		// Use --days flag (default behavior)
+		endDate = time.Now()
+		startDate = endDate.AddDate(0, 0, -days)
+	}
+
+	// Validate date range
+	if err := dateparse.ValidateDateRange(startDate, endDate); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	startDateStr := dateparse.FormatForAPI(startDate)
+	endDateStr := dateparse.FormatForAPI(endDate)
 
 	// Get configuration values
 	jiraURL := viper.GetString("jira.url")
@@ -275,7 +350,10 @@ func generateHighlight(email, startDate, endDate, jiraURL, jiraUsername, jiraTok
 
 	// AI-generated accomplishment(s)
 	if ollamaURL != "" {
-		model := "llama3.2:latest"
+		model := viper.GetString("ollama.model")
+		if model == "" {
+			model = "llama3.2:latest"
+		}
 		if verbose {
 			fmt.Printf("\n→ Generating AI summary using Ollama...\n")
 			fmt.Printf("  Model: %s\n", model)
