@@ -4,8 +4,7 @@ on:
   release:
     types: [published]
 
-permissions:
-  contents: write
+permissions: read-all
 
 jobs:
   build:
@@ -56,6 +55,8 @@ jobs:
     name: Upload release assets
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v7
