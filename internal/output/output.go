@@ -89,19 +89,19 @@ func formatHighlightText(data HighlightData) string {
 
 	sb.WriteString("\n")
 	if data.PRsCreated > 0 {
-		sb.WriteString(fmt.Sprintf("- Created %d PRs in the last %d days (%d merged, %d open)\n",
-			data.PRsCreated, data.Days, data.PRsMerged, data.PRsOpen))
+		fmt.Fprintf(&sb, "- Created %d PRs in the last %d days (%d merged, %d open)\n",
+			data.PRsCreated, data.Days, data.PRsMerged, data.PRsOpen)
 	}
-	sb.WriteString(fmt.Sprintf("- Created %d Jira stories and updated Jira %d times\n",
-		data.JiraCreated, data.JiraUpdated))
+	fmt.Fprintf(&sb, "- Created %d Jira stories and updated Jira %d times\n",
+		data.JiraCreated, data.JiraUpdated)
 
 	if len(data.Accomplishments) > 0 {
-		sb.WriteString(fmt.Sprintf("- Top %d accomplishments:\n", len(data.Accomplishments)))
+		fmt.Fprintf(&sb, "- Top %d accomplishments:\n", len(data.Accomplishments))
 		for i, acc := range data.Accomplishments {
-			sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, acc))
+			fmt.Fprintf(&sb, "  %d. %s\n", i+1, acc)
 		}
 	} else if data.BiggestAccomplishment != "" {
-		sb.WriteString(fmt.Sprintf("- Biggest accomplishment: %s\n", data.BiggestAccomplishment))
+		fmt.Fprintf(&sb, "- Biggest accomplishment: %s\n", data.BiggestAccomplishment)
 	}
 	sb.WriteString("\n")
 
@@ -142,33 +142,33 @@ func formatHighlightMarkdown(data HighlightData) string {
 		name = data.Email
 	}
 
-	sb.WriteString(fmt.Sprintf("# Activity Summary: %s\n\n", name))
-	sb.WriteString(fmt.Sprintf("**Period:** %s to %s (%d days)\n\n",
+	fmt.Fprintf(&sb, "# Activity Summary: %s\n\n", name)
+	fmt.Fprintf(&sb, "**Period:** %s to %s (%d days)\n\n",
 		data.StartDate.Format("January 2, 2006"),
 		data.EndDate.Format("January 2, 2006"),
-		data.Days))
+		data.Days)
 
 	sb.WriteString("## Statistics\n\n")
 	sb.WriteString("| Metric | Count |\n")
 	sb.WriteString("|--------|-------|\n")
-	sb.WriteString(fmt.Sprintf("| Pull Requests Created | %d |\n", data.PRsCreated))
-	sb.WriteString(fmt.Sprintf("| PRs Merged | %d |\n", data.PRsMerged))
-	sb.WriteString(fmt.Sprintf("| PRs Open | %d |\n", data.PRsOpen))
-	sb.WriteString(fmt.Sprintf("| Jira Issues Created | %d |\n", data.JiraCreated))
-	sb.WriteString(fmt.Sprintf("| Jira Issues Updated | %d |\n", data.JiraUpdated))
+	fmt.Fprintf(&sb, "| Pull Requests Created | %d |\n", data.PRsCreated)
+	fmt.Fprintf(&sb, "| PRs Merged | %d |\n", data.PRsMerged)
+	fmt.Fprintf(&sb, "| PRs Open | %d |\n", data.PRsOpen)
+	fmt.Fprintf(&sb, "| Jira Issues Created | %d |\n", data.JiraCreated)
+	fmt.Fprintf(&sb, "| Jira Issues Updated | %d |\n", data.JiraUpdated)
 	sb.WriteString("\n")
 
 	if len(data.Accomplishments) > 0 {
 		sb.WriteString("## Top Accomplishments\n\n")
 		for i, acc := range data.Accomplishments {
-			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, acc))
+			fmt.Fprintf(&sb, "%d. %s\n", i+1, acc)
 		}
 		sb.WriteString("\n")
 	} else if data.BiggestAccomplishment != "" {
 		sb.WriteString("## Biggest Accomplishment\n\n")
-		sb.WriteString(fmt.Sprintf("**%s**\n\n", data.BiggestAccomplishment))
+		fmt.Fprintf(&sb, "**%s**\n\n", data.BiggestAccomplishment)
 		if data.Why != "" {
-			sb.WriteString(fmt.Sprintf("*%s*\n\n", data.Why))
+			fmt.Fprintf(&sb, "*%s*\n\n", data.Why)
 		}
 	}
 
@@ -185,7 +185,7 @@ func formatHighlightHTML(data HighlightData) string {
 
 	sb.WriteString("<!DOCTYPE html>\n<html>\n<head>\n")
 	sb.WriteString("  <meta charset=\"UTF-8\">\n")
-	sb.WriteString(fmt.Sprintf("  <title>Activity Summary - %s</title>\n", name))
+	fmt.Fprintf(&sb, "  <title>Activity Summary - %s</title>\n", name)
 	sb.WriteString("  <style>\n")
 	sb.WriteString("    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }\n")
 	sb.WriteString("    h1 { color: #333; border-bottom: 2px solid #e74c3c; padding-bottom: 10px; }\n")
@@ -202,35 +202,35 @@ func formatHighlightHTML(data HighlightData) string {
 	sb.WriteString("  </style>\n")
 	sb.WriteString("</head>\n<body>\n")
 
-	sb.WriteString(fmt.Sprintf("  <h1>Activity Summary: %s</h1>\n", name))
-	sb.WriteString(fmt.Sprintf("  <p class=\"period\"><strong>Period:</strong> %s to %s (%d days)</p>\n",
+	fmt.Fprintf(&sb, "  <h1>Activity Summary: %s</h1>\n", name)
+	fmt.Fprintf(&sb, "  <p class=\"period\"><strong>Period:</strong> %s to %s (%d days)</p>\n",
 		data.StartDate.Format("January 2, 2006"),
 		data.EndDate.Format("January 2, 2006"),
-		data.Days))
+		data.Days)
 
 	sb.WriteString("  <h2>Statistics</h2>\n")
 	sb.WriteString("  <table>\n")
 	sb.WriteString("    <tr><th>Metric</th><th>Count</th></tr>\n")
-	sb.WriteString(fmt.Sprintf("    <tr><td>Pull Requests Created</td><td>%d</td></tr>\n", data.PRsCreated))
-	sb.WriteString(fmt.Sprintf("    <tr><td>PRs Merged</td><td>%d</td></tr>\n", data.PRsMerged))
-	sb.WriteString(fmt.Sprintf("    <tr><td>PRs Open</td><td>%d</td></tr>\n", data.PRsOpen))
-	sb.WriteString(fmt.Sprintf("    <tr><td>Jira Issues Created</td><td>%d</td></tr>\n", data.JiraCreated))
-	sb.WriteString(fmt.Sprintf("    <tr><td>Jira Issues Updated</td><td>%d</td></tr>\n", data.JiraUpdated))
+	fmt.Fprintf(&sb, "    <tr><td>Pull Requests Created</td><td>%d</td></tr>\n", data.PRsCreated)
+	fmt.Fprintf(&sb, "    <tr><td>PRs Merged</td><td>%d</td></tr>\n", data.PRsMerged)
+	fmt.Fprintf(&sb, "    <tr><td>PRs Open</td><td>%d</td></tr>\n", data.PRsOpen)
+	fmt.Fprintf(&sb, "    <tr><td>Jira Issues Created</td><td>%d</td></tr>\n", data.JiraCreated)
+	fmt.Fprintf(&sb, "    <tr><td>Jira Issues Updated</td><td>%d</td></tr>\n", data.JiraUpdated)
 	sb.WriteString("  </table>\n")
 
 	if len(data.Accomplishments) > 0 {
 		sb.WriteString("  <h2>Top Accomplishments</h2>\n")
 		sb.WriteString("  <ol>\n")
 		for _, acc := range data.Accomplishments {
-			sb.WriteString(fmt.Sprintf("    <li>%s</li>\n", html.EscapeString(acc)))
+			fmt.Fprintf(&sb, "    <li>%s</li>\n", html.EscapeString(acc))
 		}
 		sb.WriteString("  </ol>\n")
 	} else if data.BiggestAccomplishment != "" {
 		sb.WriteString("  <h2>Biggest Accomplishment</h2>\n")
 		sb.WriteString("  <div class=\"accomplishment\">\n")
-		sb.WriteString(fmt.Sprintf("    <strong>%s</strong>\n", html.EscapeString(data.BiggestAccomplishment)))
+		fmt.Fprintf(&sb, "    <strong>%s</strong>\n", html.EscapeString(data.BiggestAccomplishment))
 		if data.Why != "" {
-			sb.WriteString(fmt.Sprintf("    <p class=\"why\">%s</p>\n", html.EscapeString(data.Why)))
+			fmt.Fprintf(&sb, "    <p class=\"why\">%s</p>\n", html.EscapeString(data.Why))
 		}
 		sb.WriteString("  </div>\n")
 	}
