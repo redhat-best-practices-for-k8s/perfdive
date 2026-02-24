@@ -3,7 +3,7 @@ module github.com/redhat-best-practices-for-k8s/perfdive
 go 1.26.0
 
 require (
-	github.com/sebrandon1/jiracrawler v0.0.16
+	github.com/sebrandon1/jiracrawler v0.0.17
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 )
