@@ -190,10 +190,10 @@ func (c *Client) buildJiraPrompt(req SummaryRequest) string {
 		userName = req.DisplayName
 	}
 
-	builder.WriteString(fmt.Sprintf(
+	fmt.Fprintf(&builder,
 		"Analyze %s's Jira project work from %s to %s. Write a professional summary of their project management and problem-solving contributions.\n\n",
 		userName, req.StartDate, req.EndDate,
-	))
+	)
 
 	builder.WriteString("Focus on:\n")
 	builder.WriteString("- Issues resolved and business impact\n")
@@ -217,10 +217,10 @@ func (c *Client) buildGitHubPrompt(req SummaryRequest) string {
 		userName = req.DisplayName
 	}
 
-	builder.WriteString(fmt.Sprintf(
+	fmt.Fprintf(&builder,
 		"Analyze %s's GitHub development contributions from %s to %s. Write a professional summary of their technical contributions and development productivity.\n\n",
 		userName, req.StartDate, req.EndDate,
-	))
+	)
 
 	builder.WriteString("Focus on:\n")
 	builder.WriteString("- Code contributions and technical improvements\n")
@@ -240,7 +240,7 @@ func (c *Client) buildQuantitativeSummary(req SummaryRequest) string {
 	var builder strings.Builder
 
 	// Jira metrics
-	builder.WriteString(fmt.Sprintf("**Jira Issues:** %d total\n", len(req.Issues)))
+	fmt.Fprintf(&builder, "**Jira Issues:** %d total\n", len(req.Issues))
 	if len(req.Issues) > 0 {
 		projectGroups := make(map[string]int)
 		for _, issue := range req.Issues {
@@ -248,7 +248,7 @@ func (c *Client) buildQuantitativeSummary(req SummaryRequest) string {
 			projectGroups[project]++
 		}
 		for project, count := range projectGroups {
-			builder.WriteString(fmt.Sprintf("- %s: %d issues\n", project, count))
+			fmt.Fprintf(&builder, "- %s: %d issues\n", project, count)
 		}
 	}
 
@@ -256,10 +256,10 @@ func (c *Client) buildQuantitativeSummary(req SummaryRequest) string {
 	if req.GitHubContext != nil && req.GitHubContext.ComprehensiveActivity != nil {
 		activity := req.GitHubContext.ComprehensiveActivity
 		totalActivity := len(activity.PullRequests) + len(activity.Issues) + len(activity.Events)
-		builder.WriteString(fmt.Sprintf("\n**GitHub Contributions:** %d total\n", totalActivity))
-		builder.WriteString(fmt.Sprintf("- Pull Requests: %d\n", len(activity.PullRequests)))
-		builder.WriteString(fmt.Sprintf("- Issues: %d\n", len(activity.Issues)))
-		builder.WriteString(fmt.Sprintf("- Other Activities: %d\n", len(activity.Events)))
+		fmt.Fprintf(&builder, "\n**GitHub Contributions:** %d total\n", totalActivity)
+		fmt.Fprintf(&builder, "- Pull Requests: %d\n", len(activity.PullRequests))
+		fmt.Fprintf(&builder, "- Issues: %d\n", len(activity.Issues))
+		fmt.Fprintf(&builder, "- Other Activities: %d\n", len(activity.Events))
 	}
 
 	return builder.String()

@@ -368,15 +368,15 @@ func generateHighlight(email, startDate, endDate, jiraURL, jiraUsername, jiraTok
 				if verbose {
 					fmt.Printf("  ✓ AI summary generated (top %d accomplishments)\n", listCount)
 				}
-				output.WriteString(fmt.Sprintf("- Top %d accomplishments:\n", listCount))
+				fmt.Fprintf(&output, "- Top %d accomplishments:\n", listCount)
 				for i, acc := range accomplishments {
-					output.WriteString(fmt.Sprintf("  %d. %s\n", i+1, acc))
+					fmt.Fprintf(&output, "  %d. %s\n", i+1, acc)
 				}
 			} else {
 				if verbose {
 					fmt.Printf("  ✗ Failed to generate AI summary: %v\n", err)
 				}
-				output.WriteString(fmt.Sprintf("- Top %d accomplishments: (Unable to generate: %v)\n", listCount, err))
+				fmt.Fprintf(&output, "- Top %d accomplishments: (Unable to generate: %v)\n", listCount, err)
 			}
 		} else {
 			// Generate single biggest accomplishment
@@ -394,7 +394,7 @@ func generateHighlight(email, startDate, endDate, jiraURL, jiraUsername, jiraTok
 				
 				// Add the why to journal entries (when gist_url is configured)
 				if gistURL != "" && why != "" {
-					output.WriteString(fmt.Sprintf("  - Why: %s\n", why))
+					fmt.Fprintf(&output, "  - Why: %s\n", why)
 				}
 			} else {
 				if verbose {

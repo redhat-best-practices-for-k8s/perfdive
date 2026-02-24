@@ -5,7 +5,7 @@ on:
     # Run at 2 AM UTC every day
     - cron: '0 2 * * *'
   workflow_dispatch:  # Allow manual trigger
-
+permissions: read-all
 jobs:
   nightly:
     name: Nightly Build and Integration Tests
