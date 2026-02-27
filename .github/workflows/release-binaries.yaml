@@ -45,7 +45,7 @@ jobs:
           (cd dist && tar -czf "pkg/${PKG_NAME}.tar.gz" "${BINARY_NAME}")
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: perfdive_${{ matrix.goos }}_${{ matrix.goarch }}
           path: dist/pkg/*
