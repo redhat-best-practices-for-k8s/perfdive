@@ -98,4 +98,4 @@ github:
 
 ## Go Version
 
-This project uses Go 1.26.0.
+This project uses Go 1.26.1.
