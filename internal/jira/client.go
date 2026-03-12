@@ -67,7 +67,7 @@ func (c *Client) GetUserIssuesInDateRangeWithContext(email, startDate, endDate s
 	cache, cacheErr := NewCache()
 	
 	// Use jiracrawler's enhanced function
-	result := lib.FetchUserIssuesInDateRangeWithContext(
+	result, err := lib.FetchUserIssuesInDateRangeWithContext(
 		c.config.URL,
 		c.config.Username,
 		c.config.Token,
@@ -77,6 +77,10 @@ func (c *Client) GetUserIssuesInDateRangeWithContext(email, startDate, endDate s
 		enhancedContext,
 		verbose,
 	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch issues from Jira: %w", err)
+	}
 
 	if result == nil {
 		return nil, fmt.Errorf("failed to fetch issues from Jira")
@@ -126,7 +130,7 @@ func (c *Client) VerifyAuthentication() (*UserInfo, error) {
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	today := time.Now().Format("2006-01-02")
 
-	result := lib.FetchUserIssuesInDateRange(
+	result, err := lib.FetchUserIssuesInDateRange(
 		c.config.URL,
 		c.config.Username,
 		c.config.Token,
@@ -134,6 +138,10 @@ func (c *Client) VerifyAuthentication() (*UserInfo, error) {
 		yesterday,
 		today,
 	)
+
+	if err != nil {
+		return nil, fmt.Errorf("authentication failed - could not connect to Jira: %w", err)
+	}
 
 	if result == nil {
 		return nil, fmt.Errorf("authentication failed - could not connect to Jira")
