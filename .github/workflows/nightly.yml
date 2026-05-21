@@ -9,7 +9,7 @@ permissions: read-all
 jobs:
   nightly:
     name: Nightly Build and Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.repository == 'redhat-best-practices-for-k8s/perfdive'
     steps:
       - name: Checkout code
