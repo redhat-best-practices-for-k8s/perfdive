@@ -5,7 +5,7 @@ go 1.26.1
 toolchain go1.26.4
 
 require (
-	github.com/sebrandon1/jiracrawler v0.0.22
+	github.com/sebrandon1/jiracrawler v0.0.23
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 )
