@@ -24,7 +24,7 @@ A Golang CLI application for tracking and summarizing your work. Get quick weekl
 
 ### Prerequisites
 
-- Go 1.25.1 or later
+- Go 1.26.1 or later
 - Access to a Jira instance with API access
 - Ollama running locally or accessible via network
 
