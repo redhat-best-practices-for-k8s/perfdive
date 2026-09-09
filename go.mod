@@ -2,8 +2,6 @@ module github.com/redhat-best-practices-for-k8s/perfdive
 
 go 1.27.1
 
-toolchain go1.27.1
-
 require (
 	github.com/sebrandon1/jiracrawler v0.0.24
 	github.com/spf13/cobra v1.10.2
